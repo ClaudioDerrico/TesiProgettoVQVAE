@@ -200,9 +200,6 @@ def main():
                     best_test_mse = current_test_mse
                     patience_counter = 0
                     
-                    # Save best model
-                    torch.save(model.state_dict(), 'best_calcium_vqvae.pth')
-                    wandb.save('best_calcium_vqvae.pth')  # Upload to W&B
                     
                     # 📊 Log best metrics
                     wandb.log({

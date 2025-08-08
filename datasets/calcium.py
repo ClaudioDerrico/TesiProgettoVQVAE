@@ -161,7 +161,7 @@ def extract_speed_from_hdf5(session_id):
 
 def preprocess_neural_data_only(extraction_result):
     """
-    ✅ SEMPLIFICATO: Preprocessa solo i dati neurali, speed solo per selezione neuroni
+    Preprocessa solo i dati neurali, speed solo per selezione neuroni
     """
     if extraction_result is None:
         print("   ⚠️ No valid data available")
@@ -198,7 +198,7 @@ def preprocess_neural_data_only(extraction_result):
 
 class SimpleAllenBrainDataset(Dataset):
     """
-    ✅ SIMPLIFIED: Allen Brain Observatory dataset focused only on neural data reconstruction.
+    Allen Brain Observatory dataset focused only on neural data reconstruction.
     """
     
     def __init__(self, window_size=50, stride=10, min_neurons=30, augment=False):
@@ -219,7 +219,7 @@ class SimpleAllenBrainDataset(Dataset):
         self._load_allen_data()
         
     def _load_allen_data(self):
-        """✅ SIMPLIFIED: Load data focusing only on neural reconstruction."""
+        """Load data focusing only on neural reconstruction."""
         print("🧠 Loading Allen Brain Observatory data for reconstruction...")
         print(f"Using session: {self.session_id}")
         
