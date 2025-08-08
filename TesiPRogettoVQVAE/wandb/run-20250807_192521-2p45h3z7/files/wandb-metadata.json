@@ -1,0 +1,36 @@
+{
+  "os": "Windows-10-10.0.26100-SP0",
+  "python": "CPython 3.9.13",
+  "startedAt": "2025-08-07T17:25:21.093076Z",
+  "program": "C:\\Users\\Claudio\\Desktop\\Tesi VQVAE 1\\scripts\\train_simple_vqvae.py",
+  "codePath": "scripts\\train_simple_vqvae.py",
+  "codePathLocal": "scripts\\train_simple_vqvae.py",
+  "email": "drrcld01l11c351k@studium.unict.it",
+  "root": "C:\\Users\\Claudio\\Desktop\\Tesi VQVAE 1",
+  "host": "DESKTOP-VVU740H",
+  "executable": "C:\\Users\\Claudio\\AppData\\Local\\Programs\\Python\\Python39\\python.exe",
+  "cpu_count": 6,
+  "cpu_count_logical": 6,
+  "gpu": "NVIDIA GeForce RTX 2070 SUPER",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "499229937664",
+      "used": "461400907776"
+    }
+  },
+  "memory": {
+    "total": "17111175168"
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 2070 SUPER",
+      "memoryTotal": "8589934592",
+      "cudaCores": 2560,
+      "architecture": "Turing",
+      "uuid": "GPU-01c646fc-a228-7dc2-a2ab-41d83ff40b77"
+    }
+  ],
+  "cudaVersion": "12.9",
+  "writerId": "zayasjt9fjc43h2du4gdrkz8bz5deze8"
+}
