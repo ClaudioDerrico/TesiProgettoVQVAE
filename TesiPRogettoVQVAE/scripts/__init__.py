@@ -1,1 +1,0 @@
-# Scripts package for VQ-VAE calcium imaging projectc

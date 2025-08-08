@@ -1,1 +1,0 @@
-{"columns": ["Metric", "Value"], "data": [["Final MSE", "0.388651"], ["Final MAE", "0.293379"], ["Mean Correlation", "0.766313"], ["Min Correlation", "0.079"], ["Max Correlation", "0.906"], ["Good Neurons (%)", "93.3%"]]}
