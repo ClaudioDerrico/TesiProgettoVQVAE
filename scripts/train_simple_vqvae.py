@@ -11,6 +11,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 from scipy.stats import pearsonr
 import numpy as np
 import wandb
+import matplotlib.pyplot as plt  
 
 # Import corretti
 from models.vqvae import CalciumVQVAE
@@ -103,6 +104,46 @@ def evaluate_model(model, dataloader, device):
         'per_neuron_correlations': correlations
     }
 
+def log_reconstructions_to_wandb(original, reconstructed, epoch, num_examples=2):
+    """Log reconstruction examples as heatmaps to WandB"""
+    for i in range(min(num_examples, original.shape[0])):
+        # i=0: Usa original[0] = primo campione del batch
+        # i=1: Usa original[1] = secondo campione del batch
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        
+        # Seleziona neuroni più attivi per visualizzazione migliore
+        """Batch (32 snapshot)
+            ↓ Scelgo snapshot #0
+            Snapshot #0 (30 neuroni, 50 timepoints)
+                ↓ Scelgo i 15 neuroni più interessanti
+                Visualizzazione #0 (15 neuroni, 50 timepoints)
+            
+            ↓ Scelgo snapshot #1  
+            Snapshot #1 (30 neuroni, 50 timepoints)
+                ↓ Scelgo i 15 neuroni più interessanti (diversi dal #0!)
+                Visualizzazione #1 (15 neuroni, 50 timepoints)
+                
+                quindi io da ogni batch (finestra) prendo i primi 2 campioni e li confronto con quelli ricostruiti 
+                tenendo conto solo di 15 neuroni (i piu attivi) per volta
+                """
+        neuron_vars = np.var(original[i], axis=1)
+        top_neurons = np.argsort(neuron_vars)[-15:]  # Top 15 neuroni
+        
+        im1 = ax1.imshow(original[i, top_neurons, :], aspect='auto', cmap='viridis')
+        ax1.set_title('Original')
+        ax1.set_xlabel('Time')
+        ax1.set_ylabel('Neurons')
+        
+        im2 = ax2.imshow(reconstructed[i, top_neurons, :], aspect='auto', cmap='viridis')
+        ax2.set_title('Reconstruction')
+        ax2.set_xlabel('Time')
+        
+        plt.tight_layout()
+        wandb.log({f"reconstructions/epoch_{epoch}_example_{i}": wandb.Image(fig)})
+        plt.close(fig)
+
+
+
 def main():
     # 🎯 Initialize W&B
     wandb.init(
@@ -189,6 +230,20 @@ def main():
                 # 📊 Log all metrics to W&B
                 all_metrics = {**train_metrics, **test_metrics, 'epoch': epoch}
                 wandb.log(all_metrics)
+
+                 # Log reconstructions every 10 epochs
+                if epoch % 10 == 0:
+                    model.eval()
+                    with torch.no_grad():
+                        # 1. Prendi UN batch dal test_loader
+                        sample_batch = next(iter(test_loader)).to(device)
+                        # 2. Il modello ricostruisce TUTTO il batch
+                        _, recon_sample, _, _, _ = model(sample_batch)
+                        log_reconstructions_to_wandb(
+                            sample_batch.cpu().numpy(), 
+                            recon_sample.cpu().numpy(),
+                            epoch
+                        )
                 
                 print(f"Epoch {epoch:3d}: Train Loss={train_metrics['train/total_loss']:.4f} | "
                       f"Test MSE={test_metrics['test/mse']:.4f}, "

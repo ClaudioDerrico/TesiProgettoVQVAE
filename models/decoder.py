@@ -19,10 +19,6 @@ class Decoder(nn.Module):
 
     """
 
-
-
-
-
     """nn.ConvTranspose2d(in_dim, h_dim, kernel_size=3, stride=1, padding=1)
     Espande canali da 64 a 128
     NO cambio dimensioni spaziali (stride=1)
