@@ -32,11 +32,12 @@ def train_epoch(model, dataloader, optimizer, device):
         
         # Loss calculation
         recon_loss = F.mse_loss(recon, neural_data)
-        loss = recon_loss + vq_loss
+        loss = recon_loss +vq_loss
         
         # Backward
         optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
         optimizer.step()
         
         # Accumulate metrics

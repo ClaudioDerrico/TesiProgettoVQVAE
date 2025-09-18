@@ -1,21 +1,21 @@
 batch_size: 32
 behavior_dim: 4
 behavior_weight: 0.5
-commitment_cost: 0.25
+commitment_cost: 0.1 #aumentato
 dataset_type: single
 device: null
 disable_behavior: false
-dropout_rate: 0.1
-embedding_dim: 64
+dropout_rate: 0.0 #aumentato
+embedding_dim: 128 #aumentato
 epochs: 100
 eval_interval: 5
-gradient_clip: 1.0
-learning_rate: 0.0003
+gradient_clip: 0.5 #diminuito
+learning_rate: 0.0001 #diminuito
 min_neurons: 30
-num_embeddings: 512
-num_hiddens: 128
-num_residual_hiddens: 64
-num_residual_layers: 3
+num_embeddings: 1024 #aumentato
+num_hiddens: 256 #aumentato
+num_residual_hiddens: 128 #aumentato
+num_residual_layers: 4 #aumentato
 num_workers: 0
 patience: 20
 quantizer: improved_vq
