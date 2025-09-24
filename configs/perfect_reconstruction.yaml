@@ -1,0 +1,40 @@
+# Configurazione ottimizzata per Perfect Reconstruction
+# Train Loss → 0
+
+# Model Architecture - POTENZIATA
+num_neurons: 30
+num_hiddens: 512              # AUMENTATO da 256
+num_residual_layers: 6        # AUMENTATO da 4  
+num_residual_hiddens: 256     # AUMENTATO da 128
+num_embeddings: 2048          # AUMENTATO da 1024
+embedding_dim: 256            # AUMENTATO da 128
+dropout_rate: 0.0             # ELIMINATO dropout
+
+# VQ Parameters - OTTIMIZZATI
+commitment_cost: 0.05         # RIDOTTO da 0.1
+quantizer: improved_vq
+
+# Training Parameters - AGGRESSIVI
+batch_size: 16                # RIDOTTO da 32 per più update steps
+learning_rate: 0.001          # AUMENTATO da 0.0001
+epochs: 200                   # AUMENTATO da 100
+patience: 50                  # AUMENTATO da 20
+gradient_clip: 2.0            # AUMENTATO da 0.5
+eval_interval: 5
+
+# Dataset Parameters
+window_size: 50
+stride: 10
+min_neurons: 30
+
+# Training Targets
+target_train_loss: 0.01       # OBIETTIVO: train loss < 0.01
+vq_weight: 0.01              # PESO VQ RIDOTTISSIMO
+
+# Hardware
+device: null
+num_workers: 0
+
+# Saving
+save_dir: ./results
+session_id: null
