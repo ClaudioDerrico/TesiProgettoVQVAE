@@ -326,6 +326,46 @@ def main():
             'final/perfect_neurons_pct': final_metrics['test/perfect_neurons_pct'],
             'final/excellent_neurons_pct': final_metrics['test/excellent_neurons_pct'],
         })
+
+        wandb.log({
+    'final/train_recon_loss': final_train_metrics['train/recon_loss'],
+    'final/test_mse': final_metrics['test/mse'],
+    'final/r_squared': final_metrics['test/r_squared'],
+    'final/perfect_neurons_pct': final_metrics['test/perfect_neurons_pct'],
+    'final/excellent_neurons_pct': final_metrics['test/excellent_neurons_pct'],
+})
+         # 💾 SALVA IL MODELLO FINALE
+        print(f"\n💾 Salvando modello finale...")
+        os.makedirs('./results', exist_ok=True)  # Assicurati che la cartella esista
+        
+        final_checkpoint = {
+            'epoch': epoch if 'epoch' in locals() else 'final',
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'model_config': {
+                'num_neurons': 30,
+                'num_hiddens': 512,
+                'num_residual_layers': 6,
+                'num_residual_hiddens': 256,
+                'num_embeddings': 2048,
+                'embedding_dim': 256,
+                'commitment_cost': 0.05,
+                'dropout_rate': 0.0
+            },
+            'final_train_loss': final_train_metrics['train/recon_loss'],
+            'final_test_mse': final_metrics['test/mse'],
+            'final_r_squared': final_metrics['test/r_squared']
+        }
+        
+        torch.save(final_checkpoint, './results/best_perfect_reconstruction.pth')
+        print(f"✅ Modello salvato come ./results/best_perfect_reconstruction.pth")
+        
+        # Salva anche su W&B per backup
+        try:
+            wandb.save('./results/best_perfect_reconstruction.pth')
+            print(f"📤 Modello caricato anche su W&B")
+        except:
+            print(f"⚠️ Impossibile caricare su W&B, ma file locale salvato")
         
     except Exception as e:
         print(f"❌ Errore: {e}")
