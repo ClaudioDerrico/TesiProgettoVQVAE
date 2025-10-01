@@ -201,7 +201,8 @@ class SimpleAllenBrainDataset(Dataset):
     Allen Brain Observatory dataset focused only on neural data reconstruction.
     """
     
-    def __init__(self, window_size=50, stride=10, min_neurons=30, augment=False):
+    def __init__(self, window_size=50, stride=10, min_neurons=30, augment=False, session_id=None):
+    
         """
         Args:
             window_size: size of temporal windows
@@ -209,7 +210,13 @@ class SimpleAllenBrainDataset(Dataset):
             min_neurons: minimum number of neurons to keep
             augment: whether to apply minimal augmentation
         """
-        self.session_id = 501474098  # VISp session
+
+        # Permetti di specificare una sessione diversa
+        if session_id is None:
+            self.session_id = 501474098  # Default: sessione di training
+        else:
+            self.session_id = session_id  # Usa la sessione fornita
+    
         self.window_size = window_size
         self.stride = stride
         self.min_neurons = min_neurons
