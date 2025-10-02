@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+"""
+Training script per VQ-VAE su MULTI-SESSIONE con nuovi parametri:
+- 10 sessioni di training (NUOVE, mai usate)
+- 3 sessioni di test cross-session (quelle precedenti)
+- Window size: 30 neuroni x 60 timesteps (era 50)
+- Stride: 50 timesteps (era 10)
+"""
+
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import torch
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from scipy.stats import pearsonr
+import numpy as np
+import wandb
+import matplotlib.pyplot as plt
+
+from models.vqvae import CalciumVQVAE
+from datasets.calcium import (
+    create_simple_calcium_dataloaders,
+    TRAINING_SESSION_IDS,
+    TEST_SESSION_IDS
+)
+
+def create_enhanced_calcium_vqvae():
+    """Crea modello per 30 neuroni x 60 timesteps"""
+    return CalciumVQVAE(
+        num_neurons=30,
+        num_hiddens=512,
+        num_residual_layers=6,
+        num_residual_hiddens=256,
+        num_embeddings=2048,
+        embedding_dim=256,
+        commitment_cost=0.05,
+        dropout_rate=0.0
+    )
+
+def train_epoch_enhanced(model, dataloader, optimizer, device):
+    """Training epoch ottimizzato"""
+    model.train()
+    
+    for module in model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            module.eval()
+    
+    total_loss = 0
+    total_recon_loss = 0
+    total_vq_loss = 0
+    total_perplexity = 0
+    
+    for batch in dataloader:
+        neural_data = batch.to(device)
+        
+        vq_loss, recon, perplexity, _, _ = model(neural_data)
+        
+        recon_loss = F.mse_loss(recon, neural_data)
+        loss = recon_loss + 0.01 * vq_loss
+        
+        optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+        optimizer.step()
+        
+        total_loss += loss.item()
+        total_recon_loss += recon_loss.item()
+        total_vq_loss += vq_loss.item()
+        total_perplexity += perplexity.item()
+    
+    num_batches = len(dataloader)
+    return {
+        'train/total_loss': total_loss / num_batches,
+        'train/recon_loss': total_recon_loss / num_batches,
+        'train/vq_loss': total_vq_loss / num_batches,
+        'train/perplexity': total_perplexity / num_batches
+    }
+
+def evaluate_model_enhanced(model, dataloader, device):
+    """Valutazione con metriche dettagliate"""
+    model.eval()
+    all_original = []
+    all_reconstructed = []
+    total_vq_loss = 0
+    total_perplexity = 0
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            neural_data = batch.to(device)
+            vq_loss, recon, perplexity, _, _ = model(neural_data)
+            
+            all_original.append(neural_data.cpu().numpy())
+            all_reconstructed.append(recon.cpu().numpy())
+            total_vq_loss += vq_loss.item()
+            total_perplexity += perplexity.item()
+    
+    original = np.concatenate(all_original, axis=0)
+    reconstructed = np.concatenate(all_reconstructed, axis=0)
+    
+    mse = mean_squared_error(original.flatten(), reconstructed.flatten())
+    mae = mean_absolute_error(original.flatten(), reconstructed.flatten())
+    
+    # Per-neuron correlations
+    correlations = []
+    mse_per_neuron = []
+    
+    for neuron_idx in range(original.shape[1]):
+        orig_neuron = original[:, neuron_idx, :].flatten()
+        recon_neuron = reconstructed[:, neuron_idx, :].flatten()
+        
+        corr, _ = pearsonr(orig_neuron, recon_neuron)
+        correlations.append(corr if not np.isnan(corr) else 0)
+        
+        neuron_mse = mean_squared_error(orig_neuron, recon_neuron)
+        mse_per_neuron.append(neuron_mse)
+    
+    mean_correlation = np.mean(correlations)
+    min_correlation = np.min(correlations)
+    max_correlation = np.max(correlations)
+    perfect_neurons = np.sum(np.array(correlations) > 0.99)
+    excellent_neurons = np.sum(np.array(correlations) > 0.95)
+    good_neurons = np.sum(np.array(correlations) > 0.5)
+    
+    # R²
+    ss_res = np.sum((original.flatten() - reconstructed.flatten()) ** 2)
+    ss_tot = np.sum((original.flatten() - np.mean(original.flatten())) ** 2)
+    r_squared = 1 - (ss_res / ss_tot)
+    
+    num_batches = len(dataloader)
+    return {
+        'test/mse': mse,
+        'test/mae': mae,
+        'test/r_squared': r_squared,
+        'test/pearson_mean': mean_correlation,
+        'test/pearson_min': min_correlation,
+        'test/pearson_max': max_correlation,
+        'test/perfect_neurons': perfect_neurons,
+        'test/perfect_neurons_pct': (perfect_neurons / len(correlations)) * 100,
+        'test/excellent_neurons': excellent_neurons,
+        'test/excellent_neurons_pct': (excellent_neurons / len(correlations)) * 100,
+        'test/good_neurons': good_neurons,
+        'test/good_neurons_pct': (good_neurons / len(correlations)) * 100,
+        'test/worst_neuron_mse': np.max(mse_per_neuron),
+        'test/best_neuron_mse': np.min(mse_per_neuron),
+        'test/vq_loss': total_vq_loss / num_batches,
+        'test/perplexity': total_perplexity / num_batches,
+        'per_neuron_correlations': correlations,
+        'per_neuron_mse': mse_per_neuron
+    }
+
+def log_reconstructions_enhanced(original, reconstructed, epoch, num_examples=2):
+    """Enhanced reconstruction logging"""
+    for i in range(min(num_examples, original.shape[0])):
+        fig, axes = plt.subplots(2, 2, figsize=(15, 8))
+        
+        neuron_vars = np.var(original[i], axis=1)
+        top_neurons = np.argsort(neuron_vars)[-15:]
+        
+        # Original vs Reconstruction
+        im1 = axes[0,0].imshow(original[i, top_neurons, :], aspect='auto', cmap='viridis')
+        axes[0,0].set_title('Original')
+        axes[0,0].set_ylabel('Neurons')
+        
+        im2 = axes[0,1].imshow(reconstructed[i, top_neurons, :], aspect='auto', cmap='viridis')
+        axes[0,1].set_title('Reconstruction')
+        
+        # Error heatmap
+        error = np.abs(original[i, top_neurons, :] - reconstructed[i, top_neurons, :])
+        im3 = axes[1,0].imshow(error, aspect='auto', cmap='Reds')
+        axes[1,0].set_title('Absolute Error')
+        axes[1,0].set_xlabel('Time')
+        axes[1,0].set_ylabel('Neurons')
+        
+        # Per-neuron correlation
+        correlations = []
+        for neuron_idx in top_neurons:
+            corr, _ = pearsonr(original[i, neuron_idx, :], reconstructed[i, neuron_idx, :])
+            correlations.append(corr if not np.isnan(corr) else 0)
+        
+        axes[1,1].bar(range(len(correlations)), correlations)
+        axes[1,1].set_title('Per-Neuron Correlation')
+        axes[1,1].set_xlabel('Neuron Index')
+        axes[1,1].set_ylabel('Correlation')
+        axes[1,1].axhline(y=0.99, color='r', linestyle='--', label='Perfect (0.99)')
+        axes[1,1].axhline(y=0.95, color='orange', linestyle='--', label='Excellent (0.95)')
+        axes[1,1].legend()
+        
+        plt.tight_layout()
+        wandb.log({f"enhanced_reconstructions/epoch_{epoch}_example_{i}": wandb.Image(fig)})
+        plt.close(fig)
+
+def main():
+    """Main training con multi-sessione"""
+    
+    # 🎯 W&B config
+    wandb.init(
+        project="calcium-vqvae-multi-session",
+        name="10sessions-30x60-stride50",
+        config={
+            "model_type": "Enhanced_CalciumVQVAE",
+            "num_sessions_train": len(TRAINING_SESSION_IDS),
+            "num_sessions_test": len(TEST_SESSION_IDS),
+            "num_neurons": 30,
+            "window_size": 60,  # NUOVO
+            "stride": 50,       # NUOVO
+            "num_hiddens": 512,
+            "num_residual_layers": 6,
+            "num_residual_hiddens": 256,
+            "num_embeddings": 2048,
+            "embedding_dim": 256,
+            "commitment_cost": 0.05,
+            "batch_size": 16,
+            "learning_rate": 0.001,
+            "max_epochs": 200,
+            "patience": 50,
+            "vq_weight": 0.01,
+            "target_train_loss": 0.01
+        }
+    )
+    
+    print("🎯 TRAINING MULTI-SESSION VQ-VAE")
+    print("="*70)
+    print(f"📊 Training sessions: {len(TRAINING_SESSION_IDS)}")
+    print(f"   {TRAINING_SESSION_IDS}")
+    print(f"📊 Test sessions (cross-session): {len(TEST_SESSION_IDS)}")
+    print(f"   {TEST_SESSION_IDS}")
+    print(f"📐 Window: 30 neurons x 60 timesteps, stride=50")
+    print("="*70)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    
+    try:
+        # Dataset loading - MULTI-SESSION
+        print("\n📊 Caricamento dataset MULTI-SESSION...")
+        train_loader, test_loader, dataset_info = create_simple_calcium_dataloaders(
+            batch_size=wandb.config.batch_size,
+            window_size=wandb.config.window_size,
+            stride=wandb.config.stride,
+            min_neurons=wandb.config.num_neurons,
+            use_multi_session=True  # 🔥 ATTIVA MULTI-SESSION
+        )
+        
+        print(f"\n✅ Dataset multi-session caricato:")
+        print(f"   Sessioni: {dataset_info['num_sessions']}")
+        print(f"   Train samples: {dataset_info['train_samples']}")
+        print(f"   Test samples: {dataset_info['test_samples']}")
+        print(f"   Neural shape: {dataset_info['neural_shape']}")
+        
+        # 🚀 MODELLO
+        print("\n🏗️ Creazione modello enhanced...")
+        model = create_enhanced_calcium_vqvae().to(device)
+        
+        num_params = sum(p.numel() for p in model.parameters())
+        wandb.log({"model/num_parameters": num_params})
+        print(f"Modello: {num_params:,} parametri")
+        
+        # 🎯 OPTIMIZER
+        optimizer = torch.optim.AdamW(
+            model.parameters(), 
+            lr=wandb.config.learning_rate,
+            weight_decay=0.0001,
+            betas=(0.9, 0.99)
+        )
+        
+        # 🔥 SCHEDULER
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=wandb.config.max_epochs, eta_min=1e-6
+        )
+        
+        # Training loop
+        print("\n🚀 Inizio training multi-session...")
+        best_test_mse = float('inf')
+        best_train_loss = float('inf')
+        patience_counter = 0
+        
+        for epoch in range(wandb.config.max_epochs):
+            # 🎯 TRAINING
+            train_metrics = train_epoch_enhanced(model, train_loader, optimizer, device)
+            
+            scheduler.step()
+            current_lr = scheduler.get_last_lr()[0]
+            
+            # Evaluation ogni 5 epoche
+            if epoch % 5 == 0:
+                test_metrics = evaluate_model_enhanced(model, test_loader, device)
+                current_test_mse = test_metrics['test/mse']
+                current_train_loss = train_metrics['train/recon_loss']
+                
+                # 📊 Log metrics
+                all_metrics = {
+                    **train_metrics, 
+                    **test_metrics, 
+                    'epoch': epoch,
+                    'learning_rate': current_lr
+                }
+                wandb.log(all_metrics)
+
+                train_perfect = current_train_loss < 0.01
+                train_excellent = current_train_loss < 0.05
+                
+                print(f"Epoch {epoch:3d}: Train Loss={current_train_loss:.6f} {'🎯 PERFECT!' if train_perfect else '🔥 EXCELLENT!' if train_excellent else ''}")
+                print(f"           Test MSE={current_test_mse:.4f}, R²={test_metrics['test/r_squared']:.4f}")
+                print(f"           Correlations: Perfect={test_metrics['test/perfect_neurons_pct']:.1f}%, Excellent={test_metrics['test/excellent_neurons_pct']:.1f}%")
+                print(f"           LR={current_lr:.2e}")
+                
+                # Log reconstructions ogni 20 epoche
+                if epoch % 20 == 0:
+                    model.eval()
+                    with torch.no_grad():
+                        sample_batch = next(iter(test_loader)).to(device)
+                        _, recon_sample, _, _, _ = model(sample_batch)
+                        log_reconstructions_enhanced(
+                            sample_batch.cpu().numpy(), 
+                            recon_sample.cpu().numpy(),
+                            epoch
+                        )
+                
+                # Early stopping
+                if current_train_loss < best_train_loss:
+                    best_train_loss = current_train_loss
+                    patience_counter = 0
+                    
+                    wandb.log({
+                        'best/train_loss': current_train_loss,
+                        'best/test_mse': current_test_mse,
+                        'best/r_squared': test_metrics['test/r_squared'],
+                        'best/epoch': epoch
+                    })
+                    
+                    if current_train_loss < 0.05:
+                        print(f"💾 Salvando modello con train loss = {current_train_loss:.6f}")
+                else:
+                    patience_counter += 1
+                
+                # STOP se raggiungiamo l'obiettivo
+                if current_train_loss < wandb.config.target_train_loss:
+                    print(f"🎯 OBIETTIVO RAGGIUNTO! Train loss = {current_train_loss:.6f} < {wandb.config.target_train_loss}")
+                    break
+                
+                if patience_counter >= wandb.config.patience:
+                    print(f"Early stopping at epoch {epoch}")
+                    break
+            else:
+                wandb.log({**train_metrics, 'epoch': epoch, 'learning_rate': current_lr})
+        
+        # Final evaluation
+        print("\n🎯 VALUTAZIONE FINALE:")
+        final_metrics = evaluate_model_enhanced(model, test_loader, device)
+        final_train_metrics = train_epoch_enhanced(model, train_loader, optimizer, device)
+        
+        print(f"🔥 TRAIN RECON LOSS FINALE: {final_train_metrics['train/recon_loss']:.8f}")
+        print(f"📊 Test MSE: {final_metrics['test/mse']:.6f}")
+        print(f"📈 R² Score: {final_metrics['test/r_squared']:.6f}")
+        print(f"🎯 Perfect correlations (>0.99): {final_metrics['test/perfect_neurons_pct']:.1f}%")
+        print(f"⭐ Excellent correlations (>0.95): {final_metrics['test/excellent_neurons_pct']:.1f}%")
+        
+        # 📊 Final summary
+        wandb.log({
+            'final/train_recon_loss': final_train_metrics['train/recon_loss'],
+            'final/test_mse': final_metrics['test/mse'],
+            'final/r_squared': final_metrics['test/r_squared'],
+            'final/perfect_neurons_pct': final_metrics['test/perfect_neurons_pct'],
+            'final/excellent_neurons_pct': final_metrics['test/excellent_neurons_pct'],
+        })
+
+        # 💾 SALVA IL MODELLO FINALE
+        print(f"\n💾 Salvando modello finale...")
+        os.makedirs('./results', exist_ok=True)
+        
+        final_checkpoint = {
+            'epoch': epoch if 'epoch' in locals() else 'final',
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'model_config': {
+                'num_neurons': 30,
+                'window_size': 60,
+                'stride': 50,
+                'num_hiddens': 512,
+                'num_residual_layers': 6,
+                'num_residual_hiddens': 256,
+                'num_embeddings': 2048,
+                'embedding_dim': 256,
+                'commitment_cost': 0.05,
+                'dropout_rate': 0.0
+            },
+            'dataset_info': dataset_info,
+            'training_sessions': TRAINING_SESSION_IDS,
+            'test_sessions': TEST_SESSION_IDS,
+            'final_train_loss': final_train_metrics['train/recon_loss'],
+            'final_test_mse': final_metrics['test/mse'],
+            'final_r_squared': final_metrics['test/r_squared']
+        }
+        
+        torch.save(final_checkpoint, './results/best_multi_session_30x60.pth')
+        print(f"✅ Modello salvato come ./results/best_multi_session_30x60.pth")
+        
+        # Salva anche su W&B
+        try:
+            wandb.save('./results/best_multi_session_30x60.pth')
+            print(f"📤 Modello caricato anche su W&B")
+        except:
+            print(f"⚠️ Impossibile caricare su W&B, ma file locale salvato")
+        
+    except Exception as e:
+        print(f"❌ Errore: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    finally:
+        wandb.finish()
+
+if __name__ == "__main__":
+    main()

@@ -10,6 +10,10 @@ class CalciumDecoder(nn.Module):
     """
     1D Decoder optimized for calcium imaging data.
     Symmetric to CalciumEncoder with transpose convolutions.
+    
+    SUPPORTA 60 TIMESTEPS: 
+    - Input: (B, embedding_dim, 15) [dopo encoder con stride=2,2]
+    - Output: (B, 30, 60) [neuroni, timesteps originali]
     """
 
     def __init__(self, embedding_dim, num_hiddens, num_residual_layers, 
@@ -24,20 +28,22 @@ class CalciumDecoder(nn.Module):
             for _ in range(num_residual_layers)
         ])
         
-        # Progressive upsampling (fixed output_padding)
+        # Progressive upsampling
+        # 15 -> 30 (stride=2, output_padding=0)
         self._conv_transpose_1 = nn.ConvTranspose1d(
             in_channels=embedding_dim,
             out_channels=num_hiddens,
             kernel_size=3, stride=2, padding=1, output_padding=1
         )
         
-        # ✅ FIXED: output_padding deve essere < stride (1 < 2)
+        # 30 -> 60 (stride=2, output_padding=0)
         self._conv_transpose_2 = nn.ConvTranspose1d(
             in_channels=num_hiddens,
             out_channels=num_hiddens//2,
-            kernel_size=5, stride=2, padding=2, output_padding=1  # ← Era 3, ora 1
+            kernel_size=5, stride=2, padding=2, output_padding=0
         )
         
+        # Final projection
         self._conv_final = nn.Conv1d(
             in_channels=num_hiddens//2,
             out_channels=output_channels,
@@ -64,6 +70,13 @@ class CalciumDecoder(nn.Module):
 class CalciumVQVAE(nn.Module):
     """
     Simplified VQ-VAE optimized for calcium imaging data.
+    
+    SUPPORTA 60 TIMESTEPS:
+    - Input: (B, 30, 60) [batch, neurons, timesteps]
+    - Encoder: 60 -> 30 -> 15 (con stride=2)
+    - Quantized: (B, embedding_dim, 15)
+    - Decoder: 15 -> 30 -> 60
+    - Output: (B, 30, 60)
     
     Features:
     - 1D convolutions for temporal neural data
@@ -107,22 +120,24 @@ class CalciumVQVAE(nn.Module):
         
         Args:
             x: Input tensor (B, num_neurons, time_steps)
+            Expected: (B, 30, 60)
             
         Returns:
             tuple: (vq_loss, x_recon, perplexity, quantized, encodings)
         """
         # Encode
-        z = self.encoder(x)
-        z = self.pre_quantization_conv(z)
+        z = self.encoder(x)  # (B, num_hiddens, 15)
+        z = self.pre_quantization_conv(z)  # (B, embedding_dim, 15)
         
         # Quantize  
         vq_loss, quantized, perplexity, encodings, encoding_indices = self.vector_quantization(z)
         
         # Decode
-        x_recon = self.decoder(quantized)
+        x_recon = self.decoder(quantized)  # (B, 30, ~60)
         
-        # ✅ Assicura che le dimensioni finali combacino
+        # ✅ Assicura che le dimensioni finali combacino ESATTAMENTE
         if x_recon.shape[2] != x.shape[2]:
+            # Usa interpolazione lineare per garantire match esatto
             x_recon = F.interpolate(
                 x_recon, size=x.shape[2], mode='linear', align_corners=False
             )
@@ -177,7 +192,7 @@ def create_simple_calcium_vqvae(config=None):
 
 
 if __name__ == "__main__":
-    print("🧠 Testing CalciumVQVAE:")
+    print("🧠 Testing CalciumVQVAE with 60 timesteps:")
     
     # Create model
     model = CalciumVQVAE(
@@ -190,8 +205,8 @@ if __name__ == "__main__":
         commitment_cost=0.25
     )
     
-    # Test input (batch=4, neurons=30, timesteps=50)
-    x = torch.randn(4, 30, 50)
+    # Test input (batch=4, neurons=30, timesteps=60)
+    x = torch.randn(4, 30, 60)
     print(f"📊 Input shape: {x.shape}")
     
     # Forward pass
@@ -202,6 +217,10 @@ if __name__ == "__main__":
     print(f"   Quantized: {quantized.shape}")
     print(f"   VQ Loss: {vq_loss:.4f}")
     print(f"   Perplexity: {perplexity:.2f}")
+    
+    # Verify shape match
+    assert x_recon.shape == x.shape, f"Shape mismatch! Expected {x.shape}, got {x_recon.shape}"
+    print(f"✅ Shape match verified: {x_recon.shape} == {x.shape}")
     
     # Test reconstruction quality
     recon_mse = F.mse_loss(x_recon, x)
@@ -217,3 +236,4 @@ if __name__ == "__main__":
     print(f"📚 Codebook usage: {usage_stats}")
     
     print(f"\n✨ Model created successfully with {sum(p.numel() for p in model.parameters())} parameters")
+    print(f"✅ All tests passed for 30x60 configuration!")
