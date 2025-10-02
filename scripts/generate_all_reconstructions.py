@@ -6,6 +6,7 @@ Script per generare TUTTE le ricostruzioni del modello VQ-VAE
 - Salva visualizzazioni separate per train/test
 - Calcola metriche dettagliate
 - LOG SU WANDB: Tutte le metriche e heatmap
+- CONFRONTO MODELLO ALLENATO CON SEPARAZIONE TRAIN/TEST DELLA STESSA SESSIONE PER VERIFICARE OVERFITTING/UNDERFITTING
 """
 
 import sys

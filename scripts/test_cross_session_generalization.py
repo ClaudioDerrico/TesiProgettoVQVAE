@@ -26,6 +26,7 @@ from scipy.stats import pearsonr
 from pathlib import Path
 from torch.utils.data import DataLoader
 import wandb
+from datetime import datetime
 
 from models.vqvae import CalciumVQVAE
 from datasets.calcium import SimpleAllenBrainDataset
@@ -36,7 +37,8 @@ from datasets.calcium import SimpleAllenBrainDataset
 
 # W&B Configuration
 WANDB_PROJECT = "calcium-vqvae-cross-session"
-WANDB_RUN_NAME = "cross-session-test-v1"  # Cambia se vuoi run diverse
+# Nome univoco con timestamp per evitare confusione tra run
+WANDB_RUN_NAME = f"full-eval-{datetime.now().strftime('%m%d-%H%M')}"
 
 CHECKPOINT_PATH = "results/best_perfect_reconstruction.pth"
 SAVE_DIR = "cross_session_analysis"
@@ -63,7 +65,16 @@ TEST_SESSIONS = [
 ]
 
 BATCH_SIZE = 32
-NUM_BATCHES_TO_ANALYZE = 2  # Analizza 2 batch per sessione
+
+# ============================================================================
+# OPZIONI DI ANALISI - Full Dataset per risultati affidabili
+# ============================================================================
+USE_FULL_DATASET = True  # Analizza tutto il dataset (~10k campioni/sessione)
+MAX_SAMPLES = None       # None = nessun limite
+
+# Per test veloce, decommentare:
+# USE_FULL_DATASET = False
+# MAX_SAMPLES = 2000  # ~2000 campioni per test più veloce
 
 # ============================================================================
 # FUNZIONI HELPER
@@ -99,8 +110,16 @@ def load_trained_model(checkpoint_path, config, device):
     return model
 
 
-def evaluate_session(model, session_id, device, num_batches=2):
-    """Valuta il modello su una specifica sessione e logga su W&B"""
+def evaluate_session(model, session_id, device, max_samples=None):
+    """
+    Valuta il modello su una specifica sessione e logga su W&B
+    
+    Args:
+        model: Modello allenato
+        session_id: ID sessione Allen Brain
+        device: Device (cuda/cpu)
+        max_samples: Numero massimo di campioni (None = tutti)
+    """
     
     print(f"\n{'='*70}")
     print(f"📊 Testando sessione: {session_id}")
@@ -117,7 +136,14 @@ def evaluate_session(model, session_id, device, num_batches=2):
         
         loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
         
-        print(f"✅ Dataset caricato: {len(dataset)} campioni")
+        total_samples = len(dataset)
+        if max_samples:
+            samples_to_process = min(max_samples, total_samples)
+        else:
+            samples_to_process = total_samples
+        
+        print(f"✅ Dataset caricato: {total_samples} campioni totali")
+        print(f"📊 Analizzando: {samples_to_process} campioni")
         
         # Raccogli metriche
         all_mse = []
@@ -126,12 +152,11 @@ def evaluate_session(model, session_id, device, num_batches=2):
         all_originals = []
         all_reconstructions = []
         
+        samples_processed = 0
+        
         model.eval()
         with torch.no_grad():
             for batch_idx, batch in enumerate(loader):
-                if batch_idx >= num_batches:
-                    break
-                
                 neural_data = batch.to(device)
                 
                 # Forward pass
@@ -141,13 +166,16 @@ def evaluate_session(model, session_id, device, num_batches=2):
                 original = neural_data.cpu().numpy()
                 reconstructed = neural_recon.cpu().numpy()
                 
-                # Salva per visualizzazione (primi 5 campioni del primo batch)
+                # Salva primi 5 campioni per visualizzazione
                 if batch_idx == 0:
                     all_originals = original[:5]
                     all_reconstructions = reconstructed[:5]
                 
-                # Calcola metriche per ogni campione
+                # Calcola metriche per ogni campione nel batch
                 for i in range(original.shape[0]):
+                    if max_samples and samples_processed >= max_samples:
+                        break
+                    
                     sample_orig = original[i].flatten()
                     sample_recon = reconstructed[i].flatten()
                     
@@ -163,22 +191,35 @@ def evaluate_session(model, session_id, device, num_batches=2):
                     all_mse.append(mse)
                     all_mae.append(mae)
                     all_corr.append(corr)
+                    samples_processed += 1
+                
+                # Progress update ogni 50 batch
+                if (batch_idx + 1) % 50 == 0:
+                    print(f"   Processati {batch_idx + 1} batch, {samples_processed} campioni...")
+                
+                # Stop se raggiunto il limite
+                if max_samples and samples_processed >= max_samples:
+                    break
         
-        # Statistiche
+        # Statistiche finali
         results = {
             'session_id': session_id,
             'num_samples': len(all_mse),
+            'total_dataset_size': total_samples,
             'mse_mean': np.mean(all_mse),
             'mse_std': np.std(all_mse),
+            'mse_median': np.median(all_mse),
             'mae_mean': np.mean(all_mae),
             'mae_std': np.std(all_mae),
             'corr_mean': np.mean(all_corr),
             'corr_std': np.std(all_corr),
+            'corr_median': np.median(all_corr),
             'mse_min': np.min(all_mse),
             'mse_max': np.max(all_mse),
             'corr_min': np.min(all_corr),
             'corr_max': np.max(all_corr),
             'all_mse': all_mse,
+            'all_mae': all_mae,
             'all_corr': all_corr,
             'originals': all_originals,
             'reconstructions': all_reconstructions,
@@ -187,32 +228,39 @@ def evaluate_session(model, session_id, device, num_batches=2):
         
         # Stampa risultati
         print(f"\n📈 RISULTATI:")
-        print(f"   Campioni analizzati: {results['num_samples']}")
-        print(f"   MSE:  {results['mse_mean']:.4f} ± {results['mse_std']:.4f}")
-        print(f"   MAE:  {results['mae_mean']:.4f} ± {results['mae_std']:.4f}")
-        print(f"   Corr: {results['corr_mean']:.3f} ± {results['corr_std']:.3f}")
-        print(f"   Range MSE:  [{results['mse_min']:.4f}, {results['mse_max']:.4f}]")
-        print(f"   Range Corr: [{results['corr_min']:.3f}, {results['corr_max']:.3f}]")
+        print(f"   Campioni analizzati: {results['num_samples']}/{total_samples} "
+              f"({100*results['num_samples']/total_samples:.1f}%)")
+        print(f"   MSE:    {results['mse_mean']:.6f} ± {results['mse_std']:.6f} "
+              f"(median: {results['mse_median']:.6f})")
+        print(f"   MAE:    {results['mae_mean']:.6f} ± {results['mae_std']:.6f}")
+        print(f"   Corr:   {results['corr_mean']:.4f} ± {results['corr_std']:.4f} "
+              f"(median: {results['corr_median']:.4f})")
+        print(f"   Range MSE:  [{results['mse_min']:.6f}, {results['mse_max']:.6f}]")
+        print(f"   Range Corr: [{results['corr_min']:.4f}, {results['corr_max']:.4f}]")
         
-        # 🎯 LOG SU W&B - Metriche per sessione
+        # LOG SU W&B - Metriche per sessione
         session_label = "training" if session_id == TRAINING_SESSION else f"new_{session_id}"
         
         wandb.log({
             f'{session_label}/mse_mean': results['mse_mean'],
             f'{session_label}/mse_std': results['mse_std'],
+            f'{session_label}/mse_median': results['mse_median'],
             f'{session_label}/mae_mean': results['mae_mean'],
             f'{session_label}/corr_mean': results['corr_mean'],
             f'{session_label}/corr_std': results['corr_std'],
+            f'{session_label}/corr_median': results['corr_median'],
             f'{session_label}/num_samples': results['num_samples'],
+            f'{session_label}/dataset_coverage_pct': 100 * results['num_samples'] / total_samples,
         })
         
-        # 🎯 LOG SU W&B - Distribuzioni
+        # LOG SU W&B - Distribuzioni
         wandb.log({
             f'{session_label}/mse_distribution': wandb.Histogram(all_mse),
+            f'{session_label}/mae_distribution': wandb.Histogram(all_mae),
             f'{session_label}/correlation_distribution': wandb.Histogram(all_corr),
         })
         
-        # 🎯 LOG SU W&B - Esempi di ricostruzione
+        # LOG SU W&B - Esempi di ricostruzione
         log_reconstruction_examples_wandb(
             all_originals, all_reconstructions, session_id, session_label
         )
@@ -358,17 +406,21 @@ def visualize_cross_session_results(results_dict, save_dir):
     if TRAINING_SESSION in successful_results:
         train_mse = successful_results[TRAINING_SESSION]['mse_mean']
         train_corr = successful_results[TRAINING_SESSION]['corr_mean']
+        train_samples = successful_results[TRAINING_SESSION]['num_samples']
         stats_text += f"Training Session:\n"
-        stats_text += f"  MSE:  {train_mse:.4f}\n"
-        stats_text += f"  Corr: {train_corr:.3f}\n\n"
+        stats_text += f"  Samples: {train_samples}\n"
+        stats_text += f"  MSE:  {train_mse:.6f}\n"
+        stats_text += f"  Corr: {train_corr:.4f}\n\n"
     
     new_sessions_mse = [v['mse_mean'] for k, v in successful_results.items() if k != TRAINING_SESSION]
     new_sessions_corr = [v['corr_mean'] for k, v in successful_results.items() if k != TRAINING_SESSION]
     
     if new_sessions_mse:
-        stats_text += f"New Sessions (avg):\n"
-        stats_text += f"  MSE:  {np.mean(new_sessions_mse):.4f}\n"
-        stats_text += f"  Corr: {np.mean(new_sessions_corr):.3f}\n\n"
+        avg_samples = int(np.mean([v['num_samples'] for k, v in successful_results.items() if k != TRAINING_SESSION]))
+        stats_text += f"New Sessions (avg, n={len(new_sessions_mse)}):\n"
+        stats_text += f"  Samples: {avg_samples}\n"
+        stats_text += f"  MSE:  {np.mean(new_sessions_mse):.6f}\n"
+        stats_text += f"  Corr: {np.mean(new_sessions_corr):.4f}\n\n"
         
         if TRAINING_SESSION in successful_results:
             degradation_mse = (np.mean(new_sessions_mse) - train_mse) / train_mse * 100
@@ -385,7 +437,7 @@ def visualize_cross_session_results(results_dict, save_dir):
     # Salva localmente
     plt.savefig(save_dir / 'cross_session_comparison.png', dpi=200, bbox_inches='tight')
     
-    # 🎯 LOG SU W&B
+    # LOG SU W&B
     wandb.log({
         "cross_session/comparison_plot": wandb.Image(fig)
     })
@@ -454,118 +506,12 @@ def visualize_cross_session_results(results_dict, save_dir):
     # Salva localmente
     plt.savefig(save_dir / 'cross_session_examples.png', dpi=200, bbox_inches='tight')
     
-    # 🎯 LOG SU W&B
+    # LOG SU W&B
     wandb.log({
         "cross_session/examples_grid": wandb.Image(fig)
     })
     
     plt.close()
-    
-    #print(f"✅ Esempi salvati localmente e su W&B")_distributions = [results['all_corr'] for results in successful_results.values()]
-    bp2 = axes[1, 1].boxplot(corr_distributions, labels=session_names, patch_artist=True)
-    for patch, color in zip(bp2['boxes'], colors):
-        patch.set_facecolor(color)
-    axes[1, 1].set_xticklabels(session_names, rotation=45, ha='right')
-    axes[1, 1].set_ylabel('Correlation')
-    axes[1, 1].set_title('Correlation Distribution per Session')
-    axes[1, 1].grid(True, alpha=0.3, axis='y')
-    
-    # Aggiungi statistiche
-    stats_text = "GENERALIZATION SUMMARY:\n\n"
-    
-    if TRAINING_SESSION in successful_results:
-        train_mse = successful_results[TRAINING_SESSION]['mse_mean']
-        train_corr = successful_results[TRAINING_SESSION]['corr_mean']
-        stats_text += f"Training Session:\n"
-        stats_text += f"  MSE:  {train_mse:.4f}\n"
-        stats_text += f"  Corr: {train_corr:.3f}\n\n"
-    
-    new_sessions_mse = [v['mse_mean'] for k, v in successful_results.items() if k != TRAINING_SESSION]
-    new_sessions_corr = [v['corr_mean'] for k, v in successful_results.items() if k != TRAINING_SESSION]
-    
-    if new_sessions_mse:
-        stats_text += f"New Sessions (avg):\n"
-        stats_text += f"  MSE:  {np.mean(new_sessions_mse):.4f}\n"
-        stats_text += f"  Corr: {np.mean(new_sessions_corr):.3f}\n\n"
-        
-        if TRAINING_SESSION in successful_results:
-            degradation_mse = (np.mean(new_sessions_mse) - train_mse) / train_mse * 100
-            degradation_corr = (train_corr - np.mean(new_sessions_corr)) / train_corr * 100
-            stats_text += f"Performance Change:\n"
-            stats_text += f"  MSE: {degradation_mse:+.1f}%\n"
-            stats_text += f"  Corr: {degradation_corr:+.1f}%"
-    
-    fig.text(0.02, 0.02, stats_text, fontsize=9, family='monospace',
-             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
-    
-    plt.tight_layout()
-    plt.savefig(save_dir / 'cross_session_comparison.png', dpi=200, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✅ Visualizzazione salvata: {save_dir / 'cross_session_comparison.png'}")
-    
-    # ========================================================================
-    # FIGURA 2: Esempi di ricostruzione per ogni sessione
-    # ========================================================================
-    n_sessions = len(successful_results)
-    n_samples = 3  # Mostra 3 campioni per sessione
-    
-    fig, axes = plt.subplots(n_sessions, n_samples * 3, figsize=(15, 4*n_sessions))
-    fig.suptitle('🔬 Reconstruction Examples Across Sessions', fontsize=14, fontweight='bold')
-    
-    if n_sessions == 1:
-        axes = axes.reshape(1, -1)
-    
-    for session_idx, (session_id, results) in enumerate(successful_results.items()):
-        if not results['success'] or 'originals' not in results:
-            continue
-        
-        originals = results['originals']
-        reconstructions = results['reconstructions']
-        
-        session_label = "Training" if session_id == TRAINING_SESSION else f"New {session_id}"
-        
-        for sample_idx in range(min(n_samples, len(originals))):
-            # Seleziona neuroni più attivi
-            neuron_vars = np.var(originals[sample_idx], axis=1)
-            top_neurons = np.argsort(neuron_vars)[-15:]
-            
-            col_base = sample_idx * 3
-            
-            # Original
-            ax_orig = axes[session_idx, col_base]
-            ax_orig.imshow(originals[sample_idx, top_neurons, :], 
-                          aspect='auto', cmap='viridis', vmin=-2, vmax=2)
-            if sample_idx == 0:
-                ax_orig.set_ylabel(f'{session_label}\nNeurons', fontsize=10)
-            if session_idx == 0:
-                ax_orig.set_title('Original', fontsize=10)
-            
-            # Reconstruction
-            ax_recon = axes[session_idx, col_base + 1]
-            ax_recon.imshow(reconstructions[sample_idx, top_neurons, :], 
-                           aspect='auto', cmap='viridis', vmin=-2, vmax=2)
-            if session_idx == 0:
-                ax_recon.set_title('Reconstruction', fontsize=10)
-            
-            # Error
-            error = np.abs(originals[sample_idx, top_neurons, :] - 
-                          reconstructions[sample_idx, top_neurons, :])
-            ax_error = axes[session_idx, col_base + 2]
-            ax_error.imshow(error, aspect='auto', cmap='Reds', vmin=0, vmax=1)
-            if session_idx == 0:
-                ax_error.set_title('Absolute Error', fontsize=10)
-            
-            # Rimuovi tick labels
-            for ax in [ax_orig, ax_recon, ax_error]:
-                ax.set_xticks([])
-                ax.set_yticks([])
-    
-    plt.tight_layout()
-    plt.savefig(save_dir / 'cross_session_examples.png', dpi=200, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✅ Esempi salvati: {save_dir / 'cross_session_examples.png'}")
 
 
 # ============================================================================
@@ -573,18 +519,21 @@ def visualize_cross_session_results(results_dict, save_dir):
 # ============================================================================
 
 def main():
-    print("🎯 CROSS-SESSION GENERALIZATION TEST")
+    print("🎯 CROSS-SESSION GENERALIZATION TEST - FULL DATASET ANALYSIS")
     print("="*70)
     print(f"📁 Modello: {CHECKPOINT_PATH}")
     print(f"🧪 Sessione training: {TRAINING_SESSION}")
     print(f"🔬 Sessioni test: {TEST_SESSIONS}")
+    print(f"📊 Modalità: {'FULL DATASET' if USE_FULL_DATASET else f'LIMITED ({MAX_SAMPLES} samples)'}")
     print("="*70)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"💻 Device: {device}")
+    
     save_dir = Path(SAVE_DIR)
     save_dir.mkdir(parents=True, exist_ok=True)
     
-    # 🎯 INIZIALIZZA W&B
+    # INIZIALIZZA W&B
     wandb.init(
         project=WANDB_PROJECT,
         name=WANDB_RUN_NAME,
@@ -593,10 +542,11 @@ def main():
             "training_session": TRAINING_SESSION,
             "test_sessions": TEST_SESSIONS,
             "batch_size": BATCH_SIZE,
-            "num_batches_analyzed": NUM_BATCHES_TO_ANALYZE,
+            "use_full_dataset": USE_FULL_DATASET,
+            "max_samples": MAX_SAMPLES,
             **MODEL_CONFIG
         },
-        tags=["cross-session", "generalization", "evaluation"]
+        tags=["cross-session", "generalization", "full-evaluation"]
     )
     
     print(f"✅ W&B inizializzato: {wandb.run.url}")
@@ -611,7 +561,9 @@ def main():
     print("\n" + "="*70)
     print("📊 BASELINE: Testando su sessione di TRAINING")
     print("="*70)
-    results_training = evaluate_session(model, TRAINING_SESSION, device, NUM_BATCHES_TO_ANALYZE)
+    
+    max_samples = None if USE_FULL_DATASET else MAX_SAMPLES
+    results_training = evaluate_session(model, TRAINING_SESSION, device, max_samples)
     all_results[TRAINING_SESSION] = results_training
     
     # Test su sessioni nuove
@@ -620,7 +572,7 @@ def main():
     print("="*70)
     
     for session_id in TEST_SESSIONS:
-        results = evaluate_session(model, session_id, device, NUM_BATCHES_TO_ANALYZE)
+        results = evaluate_session(model, session_id, device, max_samples)
         all_results[session_id] = results
     
     # Crea visualizzazioni comparative
@@ -637,17 +589,19 @@ def main():
     successful_count = sum(1 for r in all_results.values() if r['success'])
     print(f"✅ Sessioni testate con successo: {successful_count}/{len(all_results)}")
     
-    # 🎯 LOG SUMMARY SU W&B
+    # LOG SUMMARY SU W&B
     summary_metrics = {}
     
     if TRAINING_SESSION in all_results and all_results[TRAINING_SESSION]['success']:
         train_results = all_results[TRAINING_SESSION]
         print(f"\n📈 TRAINING SESSION ({TRAINING_SESSION}):")
-        print(f"   MSE:  {train_results['mse_mean']:.4f} ± {train_results['mse_std']:.4f}")
-        print(f"   Corr: {train_results['corr_mean']:.3f} ± {train_results['corr_std']:.3f}")
+        print(f"   Samples: {train_results['num_samples']}/{train_results['total_dataset_size']}")
+        print(f"   MSE:  {train_results['mse_mean']:.6f} ± {train_results['mse_std']:.6f}")
+        print(f"   Corr: {train_results['corr_mean']:.4f} ± {train_results['corr_std']:.4f}")
         
         summary_metrics['training_mse'] = train_results['mse_mean']
         summary_metrics['training_corr'] = train_results['corr_mean']
+        summary_metrics['training_samples'] = train_results['num_samples']
     
     new_session_results = [v for k, v in all_results.items() 
                           if k != TRAINING_SESSION and v['success']]
@@ -655,13 +609,16 @@ def main():
     if new_session_results:
         avg_mse = np.mean([r['mse_mean'] for r in new_session_results])
         avg_corr = np.mean([r['corr_mean'] for r in new_session_results])
+        avg_samples = int(np.mean([r['num_samples'] for r in new_session_results]))
         
-        print(f"\n🔬 NEW SESSIONS (Average):")
-        print(f"   MSE:  {avg_mse:.4f}")
-        print(f"   Corr: {avg_corr:.3f}")
+        print(f"\n🔬 NEW SESSIONS (Average over {len(new_session_results)} sessions):")
+        print(f"   Samples: {avg_samples} per session")
+        print(f"   MSE:  {avg_mse:.6f}")
+        print(f"   Corr: {avg_corr:.4f}")
         
         summary_metrics['new_sessions_mse_avg'] = avg_mse
         summary_metrics['new_sessions_corr_avg'] = avg_corr
+        summary_metrics['new_sessions_samples_avg'] = avg_samples
         
         if TRAINING_SESSION in all_results and all_results[TRAINING_SESSION]['success']:
             train_mse = all_results[TRAINING_SESSION]['mse_mean']
@@ -689,7 +646,7 @@ def main():
             
             summary_metrics['generalization_quality'] = generalization_quality
     
-    # 🎯 LOG SUMMARY TABLE SU W&B
+    # LOG SUMMARY TABLE SU W&B
     summary_table_data = []
     for session_id, results in all_results.items():
         if results['success']:
@@ -698,6 +655,8 @@ def main():
                 session_id,
                 session_type,
                 results['num_samples'],
+                results['total_dataset_size'],
+                f"{100*results['num_samples']/results['total_dataset_size']:.1f}%",
                 results['mse_mean'],
                 results['mse_std'],
                 results['corr_mean'],
@@ -705,7 +664,8 @@ def main():
             ])
     
     summary_table = wandb.Table(
-        columns=["Session ID", "Type", "Samples", "MSE Mean", "MSE Std", "Corr Mean", "Corr Std"],
+        columns=["Session ID", "Type", "Samples Analyzed", "Total Dataset", "Coverage %", 
+                 "MSE Mean", "MSE Std", "Corr Mean", "Corr Std"],
         data=summary_table_data
     )
     
@@ -718,10 +678,11 @@ def main():
     print(f"🌐 Risultati salvati su W&B: {wandb.run.url}")
     print("="*70)
     
-    # 🎯 FINISH W&B
+    # FINISH W&B
     wandb.finish()
     print("✅ W&B run completato!")
 
 
 if __name__ == "__main__":
     main()
+                
