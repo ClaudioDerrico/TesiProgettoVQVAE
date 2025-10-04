@@ -237,11 +237,12 @@ def main():
         # Dataset loading - MULTI-SESSION
         print("\n📊 Caricamento dataset MULTI-SESSION...")
         train_loader, test_loader, dataset_info = create_simple_calcium_dataloaders(
-            batch_size=wandb.config.batch_size,
-            window_size=wandb.config.window_size,
-            stride=wandb.config.stride,
-            min_neurons=wandb.config.num_neurons,
-            use_multi_session=True  # 🔥 ATTIVA MULTI-SESSION
+        batch_size=wandb.config.batch_size,
+        window_size=wandb.config.window_size,
+        stride=wandb.config.stride,
+        min_neurons=wandb.config.num_neurons,
+        use_multi_session=True,
+        random_neuron_selection=True  # 🆕 ATTIVA selezione casuale
         )
         
         print(f"\n✅ Dataset multi-session caricato:")

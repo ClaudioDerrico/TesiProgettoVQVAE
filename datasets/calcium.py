@@ -213,42 +213,37 @@ def preprocess_neural_data_only(extraction_result):
 
 class SimpleAllenBrainDataset(Dataset):
     """
-    Allen Brain Observatory dataset focused only on neural data reconstruction.
-    Supporta sia singola sessione che multi-sessione.
-    
-    NUOVI PARAMETRI:
-    - window_size = 60 timesteps (era 50)
-    - stride = 50 timesteps (era 10)
+    Allen Brain Observatory dataset con selezione casuale di neuroni per batch.
     """
     
-    def __init__(self, window_size=60, stride=50, min_neurons=30, augment=False, session_id=None):
+    def __init__(self, window_size=60, stride=50, min_neurons=30, 
+                 augment=False, session_id=None, random_neuron_selection=True):
         """
         Args:
-            window_size: size of temporal windows (DEFAULT: 60 timesteps)
-            stride: stride for sliding windows (DEFAULT: 50 timesteps)
-            min_neurons: minimum number of neurons to keep (30)
-            augment: whether to apply minimal augmentation
-            session_id: specific session ID or None for default
+            ...
+            random_neuron_selection: se True, seleziona neuroni casuali ad ogni campione
         """
         
-        if session_id is None:
-            self.session_id = TRAINING_SESSION_IDS[0]  # Default: prima sessione training
-        else:
-            self.session_id = session_id
-    
         self.window_size = window_size
         self.stride = stride
         self.min_neurons = min_neurons
         self.augment = augment
+        self.random_neuron_selection = random_neuron_selection  # 🆕 NUOVO
+        
+        if session_id is None:
+            self.session_id = TRAINING_SESSION_IDS[0]
+        else:
+            self.session_id = session_id
         
         # Load and preprocess data
         self._load_allen_data()
         
     def _load_allen_data(self):
-        """Load data focusing only on neural reconstruction."""
-        print("🧠 Loading Allen Brain Observatory data for reconstruction...")
+        """Load data SENZA selezionare neuroni specifici."""
+        print("🧠 Loading Allen Brain Observatory data...")
         print(f"Using session: {self.session_id}")
         print(f"Parameters: window_size={self.window_size}, stride={self.stride}")
+        print(f"🎲 Random neuron selection: {self.random_neuron_selection}")
         
         extraction_result = extract_speed_from_hdf5(self.session_id)
         
@@ -260,7 +255,6 @@ class SimpleAllenBrainDataset(Dataset):
                 
                 timestamps = processed_data['timestamps']
                 dff_traces = processed_data['dff_traces']
-                speed_for_selection = processed_data['speed_for_selection']
                 
                 if dff_traces.ndim == 2 and dff_traces.shape[0] > dff_traces.shape[1]:
                     dff_traces = dff_traces.T
@@ -270,59 +264,31 @@ class SimpleAllenBrainDataset(Dataset):
                 
             else:
                 print("  ⚠️ HDF5 preprocessing failed - falling back to Allen SDK")
-                timestamps, dff_traces, speed_for_selection = self._fallback_to_allen_sdk()
+                timestamps, dff_traces, _ = self._fallback_to_allen_sdk()
         else:
             print("  ⚠️ HDF5 extraction failed - falling back to Allen SDK")
-            timestamps, dff_traces, speed_for_selection = self._fallback_to_allen_sdk()
+            timestamps, dff_traces, _ = self._fallback_to_allen_sdk()
         
-        neural_windows = self._preprocess_neural_only(dff_traces, speed_for_selection)
+        # Non selezioniamo neuroni qui
+        # Invece processiamo TUTTI i neuroni disponibili
+        neural_windows = self._preprocess_neural_only(dff_traces)
         
         self.neural_data = torch.FloatTensor(neural_windows)
+        self.total_neurons = dff_traces.shape[0]  # 🆕 Salva numero totale neuroni
         
         print(f"📊 Final dataset: {len(self)} windows")
         print(f"   Neural data shape: {self.neural_data.shape}")
-    
-    def _fallback_to_allen_sdk(self):
-        """Fallback method using standard Allen SDK API."""
-        from allensdk.core.brain_observatory_cache import BrainObservatoryCache
+        print(f"   Total neurons available: {self.total_neurons}")
         
-        print("  🔄 Using Allen SDK API as fallback...")
-        boc = BrainObservatoryCache()
-        data_set = boc.get_ophys_experiment_data(self.session_id)
+    def _preprocess_neural_only(self, dff_traces):
+        """ Processa TUTTI i neuroni senza selezione."""
         
-        timestamps, dff_traces = data_set.get_dff_traces()
-        run_ts, running_speed = data_set.get_running_speed()
-        
-        print(f"  📊 Allen SDK data shapes:")
-        print(f"     DFF traces: {dff_traces.shape}")
-        print(f"     Running speed: {running_speed.shape}")
-        
-        if not np.array_equal(timestamps, run_ts):
-            valid_mask = ~np.isnan(run_ts) & ~np.isnan(running_speed)
-            if np.sum(valid_mask) > 0:
-                speed_interp = interp1d(run_ts[valid_mask], running_speed[valid_mask], 
-                                       bounds_error=False, fill_value=np.nanmean(running_speed))
-                speed_aligned = speed_interp(timestamps)
-            else:
-                speed_aligned = np.random.randn(len(timestamps)) * 0.1
-        else:
-            speed_aligned = running_speed
-        
-        speed_for_selection = gaussian_filter1d(speed_aligned, sigma=5)
-        
-        return timestamps, dff_traces, speed_for_selection
-    
-    def _preprocess_neural_only(self, dff_traces, speed_for_selection):
-        """✅ SIMPLIFIED: Preprocess only neural data."""
-        
-        # Select active neurons
-        active_neurons = self._select_active_neurons(dff_traces, speed_for_selection)
-        dff_active = dff_traces[active_neurons, :]
-        
-        print(f"  ✅ Selected {np.sum(active_neurons)} active neurons")
+        # 🆕 NON selezioniamo più i neuroni qui
+        # Usiamo TUTTI i neuroni disponibili
+        print(f"  ✅ Using ALL {dff_traces.shape[0]} neurons")
         
         # Normalize neural data
-        dff_normalized = zscore(dff_active, axis=1)
+        dff_normalized = zscore(dff_traces, axis=1)
         dff_normalized = np.nan_to_num(dff_normalized, nan=0.0, posinf=0.0, neginf=0.0)
         
         # Create temporal windows
@@ -330,50 +296,8 @@ class SimpleAllenBrainDataset(Dataset):
         
         return neural_windows
     
-    def _select_active_neurons(self, dff_traces, speed_data):
-        """Select neurons based on activity and correlation with behavior."""
-        
-        correlations = []
-        variances = np.var(dff_traces, axis=1)
-        
-        for i, neuron_trace in enumerate(dff_traces):
-            trace_clean = np.nan_to_num(neuron_trace, nan=0.0)
-            speed_clean = np.nan_to_num(speed_data, nan=0.0)
-            
-            if np.std(trace_clean) > 1e-8 and np.std(speed_clean) > 1e-8:
-                try:
-                    corr, _ = pearsonr(trace_clean, speed_clean)
-                    correlations.append(abs(corr) if np.isfinite(corr) else 0)
-                except:
-                    correlations.append(0)
-            else:
-                correlations.append(0)
-        
-        correlations = np.array(correlations)
-        
-        # Combined score: variance + correlation
-        variance_rank = np.argsort(variances)
-        correlation_rank = np.argsort(correlations)
-        
-        combined_score = np.zeros(len(dff_traces))
-        for i in range(len(dff_traces)):
-            var_percentile = np.where(variance_rank == i)[0][0] / len(variance_rank)
-            corr_percentile = np.where(correlation_rank == i)[0][0] / len(correlation_rank)
-            combined_score[i] = 0.7 * var_percentile + 0.3 * corr_percentile
-        
-        # Select top neurons
-        top_neurons = np.argsort(combined_score)[-self.min_neurons:]
-        active_neurons = np.zeros(len(dff_traces), dtype=bool)
-        active_neurons[top_neurons] = True
-        
-        print(f"  📊 Neuron selection stats:")
-        print(f"     Mean correlation: {np.mean(correlations[active_neurons]):.3f}")
-        print(f"     Mean variance: {np.mean(variances[active_neurons]):.3f}")
-        
-        return active_neurons
-    
     def _create_neural_windows(self, neural_data):
-        """Create sliding temporal windows with NEW stride"""
+        """Create sliding temporal windows."""
         neural_windows = []
         
         for start in range(0, neural_data.shape[1] - self.window_size + 1, self.stride):
@@ -386,8 +310,27 @@ class SimpleAllenBrainDataset(Dataset):
         return len(self.neural_data)
     
     def __getitem__(self, idx):
-        neural = self.neural_data[idx]
+        """
+        Seleziona casualmente min_neurons neuroni ad ogni chiamata
+        """
+        # Ottieni la finestra temporale completa (tutti i neuroni)
+        neural = self.neural_data[idx]  # Shape: (total_neurons, window_size)
         
+        if self.random_neuron_selection:
+            # 🎲 Seleziona casualmente min_neurons neuroni
+            total_available = neural.shape[0]
+            
+            if total_available > self.min_neurons:
+                # Scegli indici casuali
+                selected_indices = torch.randperm(total_available)[:self.min_neurons]
+                selected_indices = torch.sort(selected_indices)[0]  # Opzionale: mantieni ordine
+                neural = neural[selected_indices]
+            # Se abbiamo meno neuroni del richiesto, usa tutti
+        else:
+            # Modalità classica: prendi i primi min_neurons
+            neural = neural[:self.min_neurons]
+        
+        # Applica augmentation se richiesta
         if self.augment:
             neural = self._augment_neural_data(neural)
         
@@ -403,21 +346,14 @@ class SimpleAllenBrainDataset(Dataset):
         return neural_data
 
 
-def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neurons=30):
+def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neurons=30,
+                                random_neuron_selection=True):  # 🆕
     """
-    Crea un dataset combinato da multiple sessioni.
-    
-    Args:
-        session_ids: lista di session ID da caricare
-        window_size: dimensione finestre temporali (DEFAULT: 60)
-        stride: stride per finestre (DEFAULT: 50)
-        min_neurons: numero minimo neuroni (30)
-    
-    Returns:
-        ConcatDataset contenente tutti i dati dalle sessioni
+    Crea un dataset combinato da multiple sessioni con selezione casuale neuroni.
     """
     print(f"\n🎯 Creating MULTI-SESSION dataset from {len(session_ids)} sessions")
     print(f"   Window size: {window_size}, Stride: {stride}, Min neurons: {min_neurons}")
+    print(f"   🎲 Random neuron selection: {random_neuron_selection}")
     print("="*70)
     
     datasets = []
@@ -431,7 +367,8 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neu
                 window_size=window_size,
                 stride=stride,
                 min_neurons=min_neurons,
-                session_id=session_id
+                session_id=session_id,
+                random_neuron_selection=random_neuron_selection  # 🆕
             )
             
             datasets.append(dataset)
@@ -450,7 +387,8 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neu
     print(f"✅ MULTI-SESSION DATASET CREATED")
     print(f"   Total sessions: {len(datasets)}")
     print(f"   Total windows: {len(combined_dataset)}")
-    print(f"   Window shape: (30 neurons, {window_size} timesteps)")
+    print(f"   Window shape: ({min_neurons} neurons [random], {window_size} timesteps)")
+    print(f"   🎲 Each batch uses different random {min_neurons} neurons")
     print("="*70)
     
     return combined_dataset
@@ -458,45 +396,39 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neu
 
 def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers=0, 
                                      window_size=60, stride=50, min_neurons=30, 
-                                     use_multi_session=False):
+                                     use_multi_session=False,
+                                     random_neuron_selection=True):  # 🆕 NUOVO parametro
     """
-    Factory function per creare dataloaders - supporta multi-sessione.
+    Factory function per creare dataloaders con selezione casuale neuroni.
     
     Args:
-        batch_size: batch size
-        test_split: frazione per test set
-        num_workers: workers per dataloaders
-        window_size: dimensione finestre temporali (DEFAULT: 60)
-        stride: stride per finestre (DEFAULT: 50)
-        min_neurons: numero minimo neuroni (30)
-        use_multi_session: se True, usa le 10 sessioni di training
-    
-    Returns:
-        tuple: (train_loader, test_loader, dataset_info)
+        ...
+        random_neuron_selection: se True, seleziona neuroni casuali ad ogni batch
     """
     from torch.utils.data import DataLoader
     
     print(f"🧠 Creating calcium dataloaders:")
     print(f"   Multi-session: {use_multi_session}")
+    print(f"   Random neuron selection: {random_neuron_selection}")
     print(f"   Parameters: window={window_size}, stride={stride}, neurons={min_neurons}")
     
     if use_multi_session:
-        # USA LE 10 NUOVE SESSIONI PER TRAINING
         print(f"   Using {len(TRAINING_SESSION_IDS)} training sessions")
         dataset = create_multi_session_dataset(
             TRAINING_SESSION_IDS,
             window_size=window_size,
             stride=stride,
-            min_neurons=min_neurons
+            min_neurons=min_neurons,
+            random_neuron_selection=random_neuron_selection  # 🆕
         )
     else:
-        # Singola sessione (prima delle training sessions)
         print(f"   Using single session: {TRAINING_SESSION_IDS[0]}")
         dataset = SimpleAllenBrainDataset(
             window_size=window_size,
             stride=stride,
             min_neurons=min_neurons,
-            session_id=TRAINING_SESSION_IDS[0]
+            session_id=TRAINING_SESSION_IDS[0],
+            random_neuron_selection=random_neuron_selection  # 🆕
         )
     
     # Split dataset
@@ -519,7 +451,7 @@ def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers
         num_workers=num_workers, pin_memory=True
     )
     
-    # Info sulla forma dei dati
+    # Info
     sample = dataset[0]
     neural_shape = sample.shape if isinstance(sample, torch.Tensor) else sample[0].shape
     
@@ -532,16 +464,19 @@ def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers
         'stride': stride,
         'min_neurons': min_neurons,
         'multi_session': use_multi_session,
-        'num_sessions': len(TRAINING_SESSION_IDS) if use_multi_session else 1
+        'num_sessions': len(TRAINING_SESSION_IDS) if use_multi_session else 1,
+        'random_neuron_selection': random_neuron_selection,  # 🆕
+        'total_neurons_available': dataset.total_neurons if hasattr(dataset, 'total_neurons') else None
     }
     
     print(f"✅ Dataloaders created!")
     print(f"   Total samples: {total_size}")
     print(f"   Train: {train_size}, Test: {test_size}")
     print(f"   Neural shape per sample: {neural_shape}")
+    if hasattr(dataset, 'total_neurons'):
+        print(f"   🎲 Randomly selecting {min_neurons} from {dataset.total_neurons} neurons each time")
     
     return train_loader, test_loader, dataset_info
-
 
 if __name__ == "__main__":
     print("🧠 Testing Multi-Session CalciumDataset...")
