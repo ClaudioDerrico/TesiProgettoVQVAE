@@ -23,17 +23,30 @@ TRAINING_SESSION_IDS = [
     501773889,  # VISp
     502066273,  # VISp
     502115959,  # VISp
-    501950670,  # VISp
-    502376417,  # VISp
+    #501950670,  # VISp
+    #502376417,  # VISp
+    503109347,  # VISp - 🆕 NUOVA 1
+    502608215,  # VISp - 🆕 NUOVA 2
     503109347,  # VISp
     502608215,  # VISp
 ]
 
 # 3 SESSIONI per TEST CROSS-SESSION (quelle già usate prima)
 TEST_SESSION_IDS = [
+    # 3 VISp (same area as training)
     501559087,  # VISp, Slc17a7-IRES2-Cre
     501498760,  # VISp
     501836392,  # VISp
+    
+    # 3 VISl (Lateral Visual Area)
+    501474098,  # VISl, Cux2-CreERT2, 175 μm
+    502115784,  # VISl, Slc17a7-IRES2-Cre, 275 μm
+    501794720,  # VISl, Slc17a7-IRES2-Cre, 175 μm
+    
+    # 3 VISam (Anteromedial Visual Area)
+    501348328,  # VISam, Cux2-CreERT2, 175 μm
+    502376019,  # VISam, Slc17a7-IRES2-Cre, 275 μm
+    501742116,  # VISam, Slc17a7-IRES2-Cre, 175 μm
 ]
 
 # SESSIONE ORIGINALE (ora deprecata, era usata prima per training)
@@ -271,40 +284,70 @@ class SimpleAllenBrainDataset(Dataset):
         
         # Non selezioniamo neuroni qui
         # Invece processiamo TUTTI i neuroni disponibili
-        neural_windows = self._preprocess_neural_only(dff_traces)
-        
+        neural_windows, masks = self._preprocess_neural_only(dff_traces)  # 🆕 Riceve anche masks
+    
         self.neural_data = torch.FloatTensor(neural_windows)
-        self.total_neurons = dff_traces.shape[0]  # 🆕 Salva numero totale neuroni
-        
+        self.masks = torch.BoolTensor(masks)  # 🆕 Salva le maschere
+        self.total_neurons = dff_traces.shape[0]
+    
         print(f"📊 Final dataset: {len(self)} windows")
         print(f"   Neural data shape: {self.neural_data.shape}")
+        print(f"   Masks shape: {self.masks.shape}")
         print(f"   Total neurons available: {self.total_neurons}")
         
     def _preprocess_neural_only(self, dff_traces):
-        """ Processa TUTTI i neuroni senza selezione."""
+        """Processa TUTTI i neuroni senza selezione."""
         
-        # 🆕 NON selezioniamo più i neuroni qui
-        # Usiamo TUTTI i neuroni disponibili
         print(f"  ✅ Using ALL {dff_traces.shape[0]} neurons")
         
         # Normalize neural data
         dff_normalized = zscore(dff_traces, axis=1)
         dff_normalized = np.nan_to_num(dff_normalized, nan=0.0, posinf=0.0, neginf=0.0)
         
-        # Create temporal windows
-        neural_windows = self._create_neural_windows(dff_normalized)
+        # Create temporal windows with masks
+        neural_windows, masks = self._create_neural_windows(dff_normalized)  # 🆕
         
-        return neural_windows
+        return neural_windows, masks  # 🆕 Restituisci anche masks
     
     def _create_neural_windows(self, neural_data):
-        """Create sliding temporal windows."""
+        """Create sliding temporal windows with circular padding and masks."""
         neural_windows = []
+        masks = []  # 🆕 Maschera per ogni finestra
+        total_time = neural_data.shape[1]
         
-        for start in range(0, neural_data.shape[1] - self.window_size + 1, self.stride):
+        # Calcola quante finestre possiamo creare
+        num_complete_windows = (total_time - self.window_size) // self.stride + 1
+        last_complete_start = (num_complete_windows - 1) * self.stride
+        
+        # Crea tutte le finestre complete
+        for start in range(0, total_time - self.window_size + 1, self.stride):
             neural_window = neural_data[:, start:start + self.window_size]
             neural_windows.append(neural_window)
+            
+            # Maschera: tutti True (tutti i timesteps sono validi)
+            mask = np.ones(self.window_size, dtype=bool)
+            masks.append(mask)
         
-        return np.array(neural_windows)
+        # 🔄 Gestisci l'ultima finestra se incompleta
+        next_start = last_complete_start + self.stride
+        if next_start < total_time:
+            remaining_data = neural_data[:, next_start:]
+            missing_timesteps = self.window_size - remaining_data.shape[1]
+            
+            # Riempimento circolare
+            padding = neural_data[:, :missing_timesteps]
+            padded_window = np.concatenate([remaining_data, padding], axis=1)
+            neural_windows.append(padded_window)
+            
+            # 🎭 Maschera: True per dati reali, False per padding
+            mask = np.ones(self.window_size, dtype=bool)
+            mask[-missing_timesteps:] = False  # ← Padding NON valido
+            masks.append(mask)
+            
+            print(f"  🔄 Circular padding: Last window has {remaining_data.shape[1]} real timesteps, "
+                f"{missing_timesteps} padded (masked out)")
+        
+        return np.array(neural_windows), np.array(masks)
     
     def __len__(self):
         return len(self.neural_data)
@@ -312,30 +355,28 @@ class SimpleAllenBrainDataset(Dataset):
     def __getitem__(self, idx):
         """
         Seleziona casualmente min_neurons neuroni ad ogni chiamata
+        Restituisce anche la maschera per i timesteps validi
         """
-        # Ottieni la finestra temporale completa (tutti i neuroni)
+        # Ottieni la finestra temporale completa
         neural = self.neural_data[idx]  # Shape: (total_neurons, window_size)
+        mask = self.masks[idx]  # Shape: (window_size,)  🆕
         
         if self.random_neuron_selection:
-            # 🎲 Seleziona casualmente min_neurons neuroni
             total_available = neural.shape[0]
             
             if total_available > self.min_neurons:
-                # Scegli indici casuali
                 selected_indices = torch.randperm(total_available)[:self.min_neurons]
-                selected_indices = torch.sort(selected_indices)[0]  # Opzionale: mantieni ordine
+                selected_indices = torch.sort(selected_indices)[0]
                 neural = neural[selected_indices]
-            # Se abbiamo meno neuroni del richiesto, usa tutti
         else:
-            # Modalità classica: prendi i primi min_neurons
             neural = neural[:self.min_neurons]
         
         # Applica augmentation se richiesta
         if self.augment:
             neural = self._augment_neural_data(neural)
         
-        return neural
-    
+        return neural, mask  # 🆕 Restituisci anche la maschera
+        
     def _augment_neural_data(self, neural_data):
         """Apply minimal augmentation specific to Allen Brain data."""
         if np.random.rand() < 0.3:

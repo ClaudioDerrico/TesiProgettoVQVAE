@@ -41,7 +41,7 @@ def create_enhanced_calcium_vqvae():
     )
 
 def train_epoch_enhanced(model, dataloader, optimizer, device):
-    """Training epoch ottimizzato"""
+    """Training epoch con maschere per ignorare padding"""
     model.train()
     
     for module in model.modules():
@@ -53,12 +53,32 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
     total_vq_loss = 0
     total_perplexity = 0
     
-    for batch in dataloader:
-        neural_data = batch.to(device)
+    for batch_data in dataloader:
+        # 🆕 Unpacking con maschera
+        if isinstance(batch_data, (list, tuple)):
+            neural_data, masks = batch_data
+            neural_data = neural_data.to(device)
+            masks = masks.to(device)  # Shape: (batch, window_size)
+        else:
+            # Fallback per compatibilità
+            neural_data = batch_data.to(device)
+            masks = torch.ones(neural_data.shape[0], neural_data.shape[2], 
+                              dtype=torch.bool, device=device)
         
         vq_loss, recon, perplexity, _, _ = model(neural_data)
         
-        recon_loss = F.mse_loss(recon, neural_data)
+        # 🎭 Calcola loss SOLO sui timesteps validi (non paddati)
+        # Espandi maschera per tutti i neuroni: (batch, neurons, time)
+        mask_expanded = masks.unsqueeze(1).expand_as(recon)
+        
+        # Calcola MSE solo dove mask=True
+        squared_error = (recon - neural_data) ** 2
+        masked_squared_error = squared_error * mask_expanded
+        
+        # Media solo sui timesteps validi
+        num_valid = mask_expanded.sum()
+        recon_loss = masked_squared_error.sum() / num_valid
+        
         loss = recon_loss + 0.01 * vq_loss
         
         optimizer.zero_grad()
@@ -80,28 +100,47 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
     }
 
 def evaluate_model_enhanced(model, dataloader, device):
-    """Valutazione con metriche dettagliate"""
+    """Valutazione con maschere"""
     model.eval()
     all_original = []
     all_reconstructed = []
+    all_masks = []  # 🆕
     total_vq_loss = 0
     total_perplexity = 0
     
     with torch.no_grad():
-        for batch in dataloader:
-            neural_data = batch.to(device)
+        for batch_data in dataloader:
+            # 🆕 Unpacking con maschera
+            if isinstance(batch_data, (list, tuple)):
+                neural_data, masks = batch_data
+                neural_data = neural_data.to(device)
+                masks = masks.to(device)
+            else:
+                neural_data = batch_data.to(device)
+                masks = torch.ones(neural_data.shape[0], neural_data.shape[2], 
+                                  dtype=torch.bool, device=device)
+            
             vq_loss, recon, perplexity, _, _ = model(neural_data)
             
             all_original.append(neural_data.cpu().numpy())
             all_reconstructed.append(recon.cpu().numpy())
+            all_masks.append(masks.cpu().numpy())  # 🆕
             total_vq_loss += vq_loss.item()
             total_perplexity += perplexity.item()
     
     original = np.concatenate(all_original, axis=0)
     reconstructed = np.concatenate(all_reconstructed, axis=0)
+    masks_all = np.concatenate(all_masks, axis=0)  # 🆕
     
-    mse = mean_squared_error(original.flatten(), reconstructed.flatten())
-    mae = mean_absolute_error(original.flatten(), reconstructed.flatten())
+    # 🎭 Calcola metriche SOLO sui timesteps validi
+    # Flatten e applica maschera
+    mask_expanded = np.repeat(masks_all[:, np.newaxis, :], original.shape[1], axis=1)
+    
+    original_valid = original[mask_expanded].flatten()
+    reconstructed_valid = reconstructed[mask_expanded].flatten()
+    
+    mse = np.mean((original_valid - reconstructed_valid) ** 2)
+    mae = np.mean(np.abs(original_valid - reconstructed_valid))
     
     # Per-neuron correlations
     correlations = []
