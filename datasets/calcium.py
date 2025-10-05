@@ -17,16 +17,14 @@ warnings.filterwarnings('ignore')
 
 # 10 NUOVE SESSIONI per TRAINING (VISp, mai usate prima)
 TRAINING_SESSION_IDS = [
+    650389887,  # VISp NUOVA
+    642883713,  # VISp NUOVA
     501704220,  # VISp
     501271265,  # VISp
     502205092,  # VISp
     501773889,  # VISp
     502066273,  # VISp
     502115959,  # VISp
-    #501950670,  # VISp
-    #502376417,  # VISp
-    503109347,  # VISp - 🆕 NUOVA 1
-    502608215,  # VISp - 🆕 NUOVA 2
     503109347,  # VISp
     502608215,  # VISp
 ]
