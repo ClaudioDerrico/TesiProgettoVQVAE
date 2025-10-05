@@ -351,8 +351,22 @@ def main():
                 if epoch % 20 == 0:
                     model.eval()
                     with torch.no_grad():
-                        sample_batch = next(iter(test_loader)).to(device)
+                        # 🆕 Gestione corretta del batch con maschera
+                        batch_data = next(iter(test_loader))
+                        
+                        if isinstance(batch_data, (list, tuple)):
+                            # Caso con maschera
+                            sample_batch, sample_masks = batch_data
+                            sample_batch = sample_batch.to(device)
+                            sample_masks = sample_masks.to(device)
+                        else:
+                            # Fallback per compatibilità (se dataset non ha maschere)
+                            sample_batch = batch_data.to(device)
+                        
+                        # Genera ricostruzioni
                         _, recon_sample, _, _, _ = model(sample_batch)
+                        
+                        # Log su W&B
                         log_reconstructions_enhanced(
                             sample_batch.cpu().numpy(), 
                             recon_sample.cpu().numpy(),
