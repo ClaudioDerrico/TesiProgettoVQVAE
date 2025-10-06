@@ -37,14 +37,14 @@ TEST_SESSION_IDS = [
     501836392,  # VISp
     
     # 3 VISl (Lateral Visual Area)
-    501474098,  # VISl, Cux2-CreERT2, 175 μm
-    502115784,  # VISl, Slc17a7-IRES2-Cre, 275 μm
-    501794720,  # VISl, Slc17a7-IRES2-Cre, 175 μm
+    501474098,  # VISl
+    663488086,  # Comune
+    647593956,  #NO
     
-    # 3 VISam (Anteromedial Visual Area)
-    501348328,  # VISam, Cux2-CreERT2, 175 μm
-    502376019,  # VISam, Slc17a7-IRES2-Cre, 275 μm
-    501742116,  # VISam, Slc17a7-IRES2-Cre, 175 μm
+    # 3 VISam - ALTERNATIVE (da testare)
+    627823723,  # Comune
+    569494121,  # Comune
+    566523247,  # Comune
 ]
 
 # SESSIONE ORIGINALE (ora deprecata, era usata prima per training)
@@ -107,6 +107,7 @@ class CalciumDataset(Dataset):
             neural_data = neural_data * dropout_mask.unsqueeze(-1)
         
         return neural_data
+
 
 
 def extract_speed_from_hdf5(session_id):
@@ -280,6 +281,8 @@ class SimpleAllenBrainDataset(Dataset):
             print("  ⚠️ HDF5 extraction failed - falling back to Allen SDK")
             timestamps, dff_traces, _ = self._fallback_to_allen_sdk()
         
+        
+        
         # Non selezioniamo neuroni qui
         # Invece processiamo TUTTI i neuroni disponibili
         neural_windows, masks = self._preprocess_neural_only(dff_traces)  # 🆕 Riceve anche masks
@@ -292,6 +295,46 @@ class SimpleAllenBrainDataset(Dataset):
         print(f"   Neural data shape: {self.neural_data.shape}")
         print(f"   Masks shape: {self.masks.shape}")
         print(f"   Total neurons available: {self.total_neurons}")
+
+
+    def _fallback_to_allen_sdk(self):
+        """Fallback per caricare dati usando Allen SDK quando HDF5 fallisce"""
+        from allensdk.core.brain_observatory_cache import BrainObservatoryCache
+        
+        print("  📦 Usando Allen SDK come fallback...")
+        boc = BrainObservatoryCache()
+        
+        try:
+            data_set = boc.get_ophys_experiment_data(self.session_id)
+            timestamps, dff_traces = data_set.get_dff_traces()
+            
+            print(f"  ✅ Caricati {dff_traces.shape[0]} neuroni, {dff_traces.shape[1]} timepoints via Allen SDK")
+            
+            # Ottieni speed se disponibile
+            try:
+                run_ts, running_speed = data_set.get_running_speed()
+                
+                # Interpola speed sui timestamps neurali
+                from scipy.interpolate import interp1d
+                speed_interp = interp1d(run_ts, running_speed, 
+                                    bounds_error=False, fill_value=0)
+                speed_aligned = speed_interp(timestamps)
+                
+                # Smooth
+                from scipy.ndimage import gaussian_filter1d
+                speed_smooth = gaussian_filter1d(speed_aligned, sigma=5)
+                
+                print(f"  ✅ Running speed caricato e interpolato")
+                
+            except Exception as e:
+                print(f"  ⚠️ Running speed non disponibile: {e}")
+                speed_smooth = np.random.randn(len(timestamps)) * 0.1
+            
+            return timestamps, dff_traces, speed_smooth
+            
+        except Exception as e:
+            print(f"  ❌ Fallback Allen SDK fallito: {e}")
+            raise RuntimeError(f"Impossibile caricare sessione {self.session_id}: {e}")
         
     def _preprocess_neural_only(self, dff_traces):
         """Processa TUTTI i neuroni senza selezione."""

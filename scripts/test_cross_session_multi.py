@@ -110,7 +110,8 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
             window_size=window_size,
             stride=stride,
             min_neurons=30,
-            session_id=session_id
+            session_id=session_id,
+            random_neuron_selection=True  # 🆕 Attiva selezione casuale
         )
         
         loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
@@ -135,8 +136,14 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
         
         model.eval()
         with torch.no_grad():
-            for batch_idx, batch in enumerate(loader):
-                neural_data = batch.to(device)
+            for batch_idx, batch_data in enumerate(loader):
+                # 🔧 FIX: Gestisci tupla (neural_data, mask)
+                if isinstance(batch_data, (list, tuple)):
+                    neural_data, masks = batch_data
+                    neural_data = neural_data.to(device)
+                    masks = masks.to(device)
+                else:
+                    neural_data = batch_data.to(device)
                 
                 # Forward pass
                 vq_loss, neural_recon, perplexity, _, _ = model(neural_data)
@@ -179,6 +186,8 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
                 # Stop se raggiunto il limite
                 if max_samples and samples_processed >= max_samples:
                     break
+        
+        # ... resto del codice invariato ...
         
         # Statistiche finali
         results = {
