@@ -105,13 +105,13 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
     print(f"{'='*70}")
     
     try:
-        # Carica dataset per questa sessione
         dataset = SimpleAllenBrainDataset(
             window_size=window_size,
             stride=stride,
             min_neurons=30,
             session_id=session_id,
-            random_neuron_selection=True  # 🆕 Attiva selezione casuale
+            neuron_stride=30,
+            use_neuron_sliding=True
         )
         
         loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
@@ -125,7 +125,6 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
         print(f"✅ Dataset caricato: {total_samples} campioni totali")
         print(f"📊 Analizzando: {samples_to_process} campioni")
         
-        # Raccogli metriche
         all_mse = []
         all_mae = []
         all_corr = []
@@ -137,11 +136,13 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
         model.eval()
         with torch.no_grad():
             for batch_idx, batch_data in enumerate(loader):
-                # 🔧 FIX: Gestisci tupla (neural_data, mask)
-                if isinstance(batch_data, (list, tuple)):
-                    neural_data, masks = batch_data
+                # FIX: Gestisci 3 elementi
+                if isinstance(batch_data, (list, tuple)) and len(batch_data) == 3:
+                    neural_data, masks_time, masks_neurons = batch_data
                     neural_data = neural_data.to(device)
-                    masks = masks.to(device)
+                elif isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
+                    neural_data, masks_time = batch_data
+                    neural_data = neural_data.to(device)
                 else:
                     neural_data = batch_data.to(device)
                 
@@ -152,12 +153,12 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
                 original = neural_data.cpu().numpy()
                 reconstructed = neural_recon.cpu().numpy()
                 
-                # Salva primi 5 campioni per visualizzazione
+                # Salva primi 5 campioni
                 if batch_idx == 0:
                     all_originals = original[:5]
                     all_reconstructions = reconstructed[:5]
                 
-                # Calcola metriche per ogni campione nel batch
+                # Calcola metriche
                 for i in range(original.shape[0]):
                     if max_samples and samples_processed >= max_samples:
                         break
@@ -179,15 +180,11 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
                     all_corr.append(corr)
                     samples_processed += 1
                 
-                # Progress update ogni 50 batch
                 if (batch_idx + 1) % 50 == 0:
                     print(f"   Processati {batch_idx + 1} batch, {samples_processed} campioni...")
                 
-                # Stop se raggiunto il limite
                 if max_samples and samples_processed >= max_samples:
                     break
-        
-        # ... resto del codice invariato ...
         
         # Statistiche finali
         results = {
@@ -214,41 +211,25 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
             'success': True
         }
         
-        # Stampa risultati
         print(f"\n📈 RISULTATI:")
         print(f"   Campioni analizzati: {results['num_samples']}/{total_samples} "
               f"({100*results['num_samples']/total_samples:.1f}%)")
-        print(f"   MSE:    {results['mse_mean']:.6f} ± {results['mse_std']:.6f} "
-              f"(median: {results['mse_median']:.6f})")
-        print(f"   MAE:    {results['mae_mean']:.6f} ± {results['mae_std']:.6f}")
-        print(f"   Corr:   {results['corr_mean']:.4f} ± {results['corr_std']:.4f} "
-              f"(median: {results['corr_median']:.4f})")
-        print(f"   Range MSE:  [{results['mse_min']:.6f}, {results['mse_max']:.6f}]")
-        print(f"   Range Corr: [{results['corr_min']:.4f}, {results['corr_max']:.4f}]")
+        print(f"   MSE:    {results['mse_mean']:.6f} ± {results['mse_std']:.6f}")
+        print(f"   Corr:   {results['corr_mean']:.4f} ± {results['corr_std']:.4f}")
         
-        # LOG SU W&B - Metriche per sessione
         session_label = f"test_{session_id}"
         
         wandb.log({
             f'{session_label}/mse_mean': results['mse_mean'],
-            f'{session_label}/mse_std': results['mse_std'],
-            f'{session_label}/mse_median': results['mse_median'],
-            f'{session_label}/mae_mean': results['mae_mean'],
             f'{session_label}/corr_mean': results['corr_mean'],
-            f'{session_label}/corr_std': results['corr_std'],
-            f'{session_label}/corr_median': results['corr_median'],
             f'{session_label}/num_samples': results['num_samples'],
-            f'{session_label}/dataset_coverage_pct': 100 * results['num_samples'] / total_samples,
         })
         
-        # LOG SU W&B - Distribuzioni
         wandb.log({
             f'{session_label}/mse_distribution': wandb.Histogram(all_mse),
-            f'{session_label}/mae_distribution': wandb.Histogram(all_mae),
             f'{session_label}/correlation_distribution': wandb.Histogram(all_corr),
         })
         
-        # LOG SU W&B - Esempi di ricostruzione
         log_reconstruction_examples_wandb(
             all_originals, all_reconstructions, session_id, session_label
         )
@@ -256,7 +237,7 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
         return results
         
     except Exception as e:
-        print(f"❌ Errore durante il test della sessione {session_id}: {e}")
+        print(f"❌ Errore: {e}")
         import traceback
         traceback.print_exc()
         

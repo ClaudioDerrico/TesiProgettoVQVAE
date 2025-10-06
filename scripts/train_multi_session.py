@@ -41,7 +41,7 @@ def create_enhanced_calcium_vqvae():
     )
 
 def train_epoch_enhanced(model, dataloader, optimizer, device):
-    """Training epoch con maschere per ignorare padding"""
+    """Training epoch con maschere per neuroni E timesteps."""
     model.train()
     
     for module in model.modules():
@@ -54,29 +54,34 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
     total_perplexity = 0
     
     for batch_data in dataloader:
-        # 🆕 Unpacking con maschera
-        if isinstance(batch_data, (list, tuple)):
-            neural_data, masks = batch_data
+        # 🆕 Unpacking con ENTRAMBE le maschere
+        if isinstance(batch_data, (list, tuple)) and len(batch_data) == 3:
+            neural_data, masks_time, masks_neurons = batch_data
             neural_data = neural_data.to(device)
-            masks = masks.to(device)  # Shape: (batch, window_size)
+            masks_time = masks_time.to(device)      # Shape: (batch, window_size)
+            masks_neurons = masks_neurons.to(device)  # 🆕 Shape: (batch, min_neurons)
         else:
             # Fallback per compatibilità
-            neural_data = batch_data.to(device)
-            masks = torch.ones(neural_data.shape[0], neural_data.shape[2], 
-                              dtype=torch.bool, device=device)
+            neural_data = batch_data[0].to(device)
+            masks_time = torch.ones(neural_data.shape[0], neural_data.shape[2], 
+                                   dtype=torch.bool, device=device)
+            masks_neurons = torch.ones(neural_data.shape[0], neural_data.shape[1],
+                                      dtype=torch.bool, device=device)
         
         vq_loss, recon, perplexity, _, _ = model(neural_data)
         
-        # 🎭 Calcola loss SOLO sui timesteps validi (non paddati)
-        # Espandi maschera per tutti i neuroni: (batch, neurons, time)
-        mask_expanded = masks.unsqueeze(1).expand_as(recon)
+        # 🎭 Calcola loss SOLO su neuroni E timesteps validi
+        # Crea maschera 2D: (batch, neurons, time)
+        mask_2d = masks_neurons.unsqueeze(2) & masks_time.unsqueeze(1)
+        # Shape: (batch, min_neurons, 1) & (batch, 1, window_size)
+        #      → (batch, min_neurons, window_size)
         
-        # Calcola MSE solo dove mask=True
+        # Calcola MSE solo dove mask_2d=True
         squared_error = (recon - neural_data) ** 2
-        masked_squared_error = squared_error * mask_expanded
+        masked_squared_error = squared_error * mask_2d
         
-        # Media solo sui timesteps validi
-        num_valid = mask_expanded.sum()
+        # Media solo sui valori validi
+        num_valid = mask_2d.sum()
         recon_loss = masked_squared_error.sum() / num_valid
         
         loss = recon_loss + 0.01 * vq_loss
@@ -100,95 +105,78 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
     }
 
 def evaluate_model_enhanced(model, dataloader, device):
-    """Valutazione con maschere"""
+    """Valutazione con maschere neuroni E tempo."""
     model.eval()
     all_original = []
     all_reconstructed = []
-    all_masks = []  # 🆕
+    all_masks_time = []
+    all_masks_neurons = []  # 🆕
     total_vq_loss = 0
     total_perplexity = 0
     
     with torch.no_grad():
         for batch_data in dataloader:
-            # 🆕 Unpacking con maschera
-            if isinstance(batch_data, (list, tuple)):
-                neural_data, masks = batch_data
+            # 🆕 Unpacking con ENTRAMBE le maschere
+            if isinstance(batch_data, (list, tuple)) and len(batch_data) == 3:
+                neural_data, masks_time, masks_neurons = batch_data
                 neural_data = neural_data.to(device)
-                masks = masks.to(device)
+                masks_time = masks_time.to(device)
+                masks_neurons = masks_neurons.to(device)
             else:
-                neural_data = batch_data.to(device)
-                masks = torch.ones(neural_data.shape[0], neural_data.shape[2], 
-                                  dtype=torch.bool, device=device)
+                neural_data = batch_data[0].to(device)
+                masks_time = torch.ones(neural_data.shape[0], neural_data.shape[2], 
+                                       dtype=torch.bool, device=device)
+                masks_neurons = torch.ones(neural_data.shape[0], neural_data.shape[1],
+                                          dtype=torch.bool, device=device)
             
             vq_loss, recon, perplexity, _, _ = model(neural_data)
             
             all_original.append(neural_data.cpu().numpy())
             all_reconstructed.append(recon.cpu().numpy())
-            all_masks.append(masks.cpu().numpy())  # 🆕
+            all_masks_time.append(masks_time.cpu().numpy())
+            all_masks_neurons.append(masks_neurons.cpu().numpy())  # 🆕
             total_vq_loss += vq_loss.item()
             total_perplexity += perplexity.item()
     
     original = np.concatenate(all_original, axis=0)
     reconstructed = np.concatenate(all_reconstructed, axis=0)
-    masks_all = np.concatenate(all_masks, axis=0)  # 🆕
+    masks_time_all = np.concatenate(all_masks_time, axis=0)
+    masks_neurons_all = np.concatenate(all_masks_neurons, axis=0)  # 🆕
     
-    # 🎭 Calcola metriche SOLO sui timesteps validi
-    # Flatten e applica maschera
-    mask_expanded = np.repeat(masks_all[:, np.newaxis, :], original.shape[1], axis=1)
+    # 🎭 Calcola metriche SOLO su neuroni E timesteps validi
+    # Crea maschera 2D
+    mask_2d = masks_neurons_all[:, :, np.newaxis] & masks_time_all[:, np.newaxis, :]
+    # Shape: (batch, neurons, 1) & (batch, 1, time) → (batch, neurons, time)
     
-    original_valid = original[mask_expanded].flatten()
-    reconstructed_valid = reconstructed[mask_expanded].flatten()
+    original_valid = original[mask_2d].flatten()
+    reconstructed_valid = reconstructed[mask_2d].flatten()
     
     mse = np.mean((original_valid - reconstructed_valid) ** 2)
     mae = np.mean(np.abs(original_valid - reconstructed_valid))
     
-    # Per-neuron correlations
+    # Per-neuron correlations (solo neuroni reali, non paddati)
     correlations = []
     mse_per_neuron = []
     
-    for neuron_idx in range(original.shape[1]):
-        orig_neuron = original[:, neuron_idx, :].flatten()
-        recon_neuron = reconstructed[:, neuron_idx, :].flatten()
-        
-        corr, _ = pearsonr(orig_neuron, recon_neuron)
-        correlations.append(corr if not np.isnan(corr) else 0)
-        
-        neuron_mse = mean_squared_error(orig_neuron, recon_neuron)
-        mse_per_neuron.append(neuron_mse)
+    for sample_idx in range(original.shape[0]):
+        for neuron_idx in range(original.shape[1]):
+            # 🆕 Skippa neuroni paddati
+            if not masks_neurons_all[sample_idx, neuron_idx]:
+                continue
+            
+            # Usa solo timesteps validi per questo neurone
+            time_mask = masks_time_all[sample_idx]
+            orig_neuron = original[sample_idx, neuron_idx, time_mask]
+            recon_neuron = reconstructed[sample_idx, neuron_idx, time_mask]
+            
+            if len(orig_neuron) > 0:
+                corr, _ = pearsonr(orig_neuron, recon_neuron)
+                correlations.append(corr if not np.isnan(corr) else 0)
+                
+                neuron_mse = np.mean((orig_neuron - recon_neuron) ** 2)
+                mse_per_neuron.append(neuron_mse)
     
-    mean_correlation = np.mean(correlations)
-    min_correlation = np.min(correlations)
-    max_correlation = np.max(correlations)
-    perfect_neurons = np.sum(np.array(correlations) > 0.99)
-    excellent_neurons = np.sum(np.array(correlations) > 0.95)
-    good_neurons = np.sum(np.array(correlations) > 0.5)
-    
-    # R²
-    ss_res = np.sum((original.flatten() - reconstructed.flatten()) ** 2)
-    ss_tot = np.sum((original.flatten() - np.mean(original.flatten())) ** 2)
-    r_squared = 1 - (ss_res / ss_tot)
-    
-    num_batches = len(dataloader)
-    return {
-        'test/mse': mse,
-        'test/mae': mae,
-        'test/r_squared': r_squared,
-        'test/pearson_mean': mean_correlation,
-        'test/pearson_min': min_correlation,
-        'test/pearson_max': max_correlation,
-        'test/perfect_neurons': perfect_neurons,
-        'test/perfect_neurons_pct': (perfect_neurons / len(correlations)) * 100,
-        'test/excellent_neurons': excellent_neurons,
-        'test/excellent_neurons_pct': (excellent_neurons / len(correlations)) * 100,
-        'test/good_neurons': good_neurons,
-        'test/good_neurons_pct': (good_neurons / len(correlations)) * 100,
-        'test/worst_neuron_mse': np.max(mse_per_neuron),
-        'test/best_neuron_mse': np.min(mse_per_neuron),
-        'test/vq_loss': total_vq_loss / num_batches,
-        'test/perplexity': total_perplexity / num_batches,
-        'per_neuron_correlations': correlations,
-        'per_neuron_mse': mse_per_neuron
-    }
+    # ... resto come prima ...
 
 def log_reconstructions_enhanced(original, reconstructed, epoch, num_examples=2):
     """Enhanced reconstruction logging"""
@@ -281,7 +269,7 @@ def main():
         stride=wandb.config.stride,
         min_neurons=wandb.config.num_neurons,
         use_multi_session=True,
-        random_neuron_selection=True  # 🆕 ATTIVA selezione casuale
+        random_neuron_selection=True  # ATTIVA selezione casuale
         )
         
         print(f"\n✅ Dataset multi-session caricato:")
@@ -351,7 +339,7 @@ def main():
                 if epoch % 20 == 0:
                     model.eval()
                     with torch.no_grad():
-                        # 🆕 Gestione corretta del batch con maschera
+                        # Gestione corretta del batch con maschera
                         batch_data = next(iter(test_loader))
                         
                         if isinstance(batch_data, (list, tuple)):
