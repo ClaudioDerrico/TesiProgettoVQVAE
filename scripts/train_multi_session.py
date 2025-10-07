@@ -109,74 +109,88 @@ def evaluate_model_enhanced(model, dataloader, device):
     model.eval()
     all_original = []
     all_reconstructed = []
-    all_masks_time = []
-    all_masks_neurons = []  # 🆕
     total_vq_loss = 0
     total_perplexity = 0
+    num_batches = 0
     
     with torch.no_grad():
         for batch_data in dataloader:
-            # 🆕 Unpacking con ENTRAMBE le maschere
+            # Unpacking con ENTRAMBE le maschere
             if isinstance(batch_data, (list, tuple)) and len(batch_data) == 3:
                 neural_data, masks_time, masks_neurons = batch_data
                 neural_data = neural_data.to(device)
                 masks_time = masks_time.to(device)
                 masks_neurons = masks_neurons.to(device)
+            elif isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
+                neural_data, masks_time = batch_data
+                neural_data = neural_data.to(device)
+                masks_time = masks_time.to(device)
+                masks_neurons = torch.ones((neural_data.shape[0], neural_data.shape[1]),
+                                          dtype=torch.bool, device=device)
             else:
-                neural_data = batch_data[0].to(device)
-                masks_time = torch.ones(neural_data.shape[0], neural_data.shape[2], 
+                neural_data = batch_data.to(device)
+                masks_time = torch.ones((neural_data.shape[0], neural_data.shape[2]), 
                                        dtype=torch.bool, device=device)
-                masks_neurons = torch.ones(neural_data.shape[0], neural_data.shape[1],
+                masks_neurons = torch.ones((neural_data.shape[0], neural_data.shape[1]),
                                           dtype=torch.bool, device=device)
             
             vq_loss, recon, perplexity, _, _ = model(neural_data)
             
             all_original.append(neural_data.cpu().numpy())
             all_reconstructed.append(recon.cpu().numpy())
-            all_masks_time.append(masks_time.cpu().numpy())
-            all_masks_neurons.append(masks_neurons.cpu().numpy())  # 🆕
             total_vq_loss += vq_loss.item()
             total_perplexity += perplexity.item()
+            num_batches += 1
     
     original = np.concatenate(all_original, axis=0)
     reconstructed = np.concatenate(all_reconstructed, axis=0)
-    masks_time_all = np.concatenate(all_masks_time, axis=0)
-    masks_neurons_all = np.concatenate(all_masks_neurons, axis=0)  # 🆕
     
-    # 🎭 Calcola metriche SOLO su neuroni E timesteps validi
-    # Crea maschera 2D
-    mask_2d = masks_neurons_all[:, :, np.newaxis] & masks_time_all[:, np.newaxis, :]
-    # Shape: (batch, neurons, 1) & (batch, 1, time) → (batch, neurons, time)
+    # Calcola MSE globale
+    mse = np.mean((original - reconstructed) ** 2)
+    mae = np.mean(np.abs(original - reconstructed))
     
-    original_valid = original[mask_2d].flatten()
-    reconstructed_valid = reconstructed[mask_2d].flatten()
-    
-    mse = np.mean((original_valid - reconstructed_valid) ** 2)
-    mae = np.mean(np.abs(original_valid - reconstructed_valid))
-    
-    # Per-neuron correlations (solo neuroni reali, non paddati)
+    # Per-neuron correlations
     correlations = []
     mse_per_neuron = []
     
     for sample_idx in range(original.shape[0]):
         for neuron_idx in range(original.shape[1]):
-            # 🆕 Skippa neuroni paddati
-            if not masks_neurons_all[sample_idx, neuron_idx]:
-                continue
+            orig_neuron = original[sample_idx, neuron_idx, :]
+            recon_neuron = reconstructed[sample_idx, neuron_idx, :]
             
-            # Usa solo timesteps validi per questo neurone
-            time_mask = masks_time_all[sample_idx]
-            orig_neuron = original[sample_idx, neuron_idx, time_mask]
-            recon_neuron = reconstructed[sample_idx, neuron_idx, time_mask]
-            
-            if len(orig_neuron) > 0:
+            if len(orig_neuron) > 0 and np.std(orig_neuron) > 1e-8 and np.std(recon_neuron) > 1e-8:
                 corr, _ = pearsonr(orig_neuron, recon_neuron)
                 correlations.append(corr if not np.isnan(corr) else 0)
                 
                 neuron_mse = np.mean((orig_neuron - recon_neuron) ** 2)
                 mse_per_neuron.append(neuron_mse)
     
-    # ... resto come prima ...
+    # R² score
+    ss_res = np.sum((original.flatten() - reconstructed.flatten()) ** 2)
+    ss_tot = np.sum((original.flatten() - np.mean(original.flatten())) ** 2)
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+    
+    # Percentuali neuroni perfetti
+    perfect_neurons = np.sum(np.array(correlations) > 0.99)
+    excellent_neurons = np.sum(np.array(correlations) > 0.95)
+    good_neurons = np.sum(np.array(correlations) > 0.5)
+    
+    return {
+        'test/mse': mse,
+        'test/mae': mae,
+        'test/r_squared': r_squared,
+        'test/pearson_mean': np.mean(correlations) if correlations else 0,
+        'test/pearson_min': np.min(correlations) if correlations else 0,
+        'test/pearson_max': np.max(correlations) if correlations else 1,
+        'test/perfect_neurons': perfect_neurons,
+        'test/perfect_neurons_pct': (perfect_neurons / len(correlations) * 100) if correlations else 0,
+        'test/excellent_neurons': excellent_neurons,
+        'test/excellent_neurons_pct': (excellent_neurons / len(correlations) * 100) if correlations else 0,
+        'test/good_neurons': good_neurons,
+        'test/good_neurons_pct': (good_neurons / len(correlations) * 100) if correlations else 0,
+        'test/vq_loss': total_vq_loss / num_batches if num_batches > 0 else 0,
+        'test/perplexity': total_perplexity / num_batches if num_batches > 0 else 0,
+    }
 
 def log_reconstructions_enhanced(original, reconstructed, epoch, num_examples=2):
     """Enhanced reconstruction logging"""
@@ -269,7 +283,6 @@ def main():
         stride=wandb.config.stride,
         min_neurons=wandb.config.num_neurons,
         use_multi_session=True,
-        random_neuron_selection=True  # ATTIVA selezione casuale
         )
         
         print(f"\n✅ Dataset multi-session caricato:")
@@ -339,16 +352,17 @@ def main():
                 if epoch % 20 == 0:
                     model.eval()
                     with torch.no_grad():
-                        # Gestione corretta del batch con maschera
+                        # Gestione corretta del batch con maschere
                         batch_data = next(iter(test_loader))
                         
-                        if isinstance(batch_data, (list, tuple)):
-                            # Caso con maschera
+                        # CORREGGI QUI: gestisci tutti i casi
+                        if isinstance(batch_data, (list, tuple)) and len(batch_data) == 3:
+                            sample_batch, sample_masks_time, sample_masks_neurons = batch_data
+                            sample_batch = sample_batch.to(device)
+                        elif isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
                             sample_batch, sample_masks = batch_data
                             sample_batch = sample_batch.to(device)
-                            sample_masks = sample_masks.to(device)
                         else:
-                            # Fallback per compatibilità (se dataset non ha maschere)
                             sample_batch = batch_data.to(device)
                         
                         # Genera ricostruzioni

@@ -97,7 +97,7 @@ def load_trained_model(checkpoint_path, config, device):
 
 def evaluate_session(model, session_id, device, window_size, stride, max_samples=None):
     """
-    Valuta il modello su una specifica sessione e logga su W&B
+    Valuta il modello su una specifica sessione e logga heatmap SOLO su W&B
     """
     
     print(f"\n{'='*70}")
@@ -105,6 +105,7 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
     print(f"{'='*70}")
     
     try:
+        # Carica dataset
         dataset = SimpleAllenBrainDataset(
             window_size=window_size,
             stride=stride,
@@ -136,12 +137,9 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
         model.eval()
         with torch.no_grad():
             for batch_idx, batch_data in enumerate(loader):
-                # FIX: Gestisci 3 elementi
+                # Gestisci maschere
                 if isinstance(batch_data, (list, tuple)) and len(batch_data) == 3:
                     neural_data, masks_time, masks_neurons = batch_data
-                    neural_data = neural_data.to(device)
-                elif isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
-                    neural_data, masks_time = batch_data
                     neural_data = neural_data.to(device)
                 else:
                     neural_data = batch_data.to(device)
@@ -153,12 +151,12 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
                 original = neural_data.cpu().numpy()
                 reconstructed = neural_recon.cpu().numpy()
                 
-                # Salva primi 5 campioni
+                # 💾 SALVA primi 10 campioni per visualizzazione (SOLO DAL PRIMO BATCH!)
                 if batch_idx == 0:
-                    all_originals = original[:5]
-                    all_reconstructions = reconstructed[:5]
+                    all_originals = original[:10]
+                    all_reconstructions = reconstructed[:10]
                 
-                # Calcola metriche
+                # Calcola metriche per TUTTI i campioni del batch
                 for i in range(original.shape[0]):
                     if max_samples and samples_processed >= max_samples:
                         break
@@ -180,9 +178,11 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
                     all_corr.append(corr)
                     samples_processed += 1
                 
+                # Print ogni 50 batch
                 if (batch_idx + 1) % 50 == 0:
                     print(f"   Processati {batch_idx + 1} batch, {samples_processed} campioni...")
                 
+                # Break se raggiunto il limite
                 if max_samples and samples_processed >= max_samples:
                     break
         
@@ -212,11 +212,11 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
         }
         
         print(f"\n📈 RISULTATI:")
-        print(f"   Campioni analizzati: {results['num_samples']}/{total_samples} "
-              f"({100*results['num_samples']/total_samples:.1f}%)")
+        print(f"   Campioni analizzati: {results['num_samples']}/{total_samples}")
         print(f"   MSE:    {results['mse_mean']:.6f} ± {results['mse_std']:.6f}")
         print(f"   Corr:   {results['corr_mean']:.4f} ± {results['corr_std']:.4f}")
         
+        # 📤 LOG SU W&B - Metriche
         session_label = f"test_{session_id}"
         
         wandb.log({
@@ -230,9 +230,12 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
             f'{session_label}/correlation_distribution': wandb.Histogram(all_corr),
         })
         
+        # 📤 LOG HEATMAP SU W&B
+        print(f"\n📤 Loggando heatmap su W&B per sessione {session_id}...")
         log_reconstruction_examples_wandb(
             all_originals, all_reconstructions, session_id, session_label
         )
+        print(f"✅ Heatmap loggati su W&B!")
         
         return results
         

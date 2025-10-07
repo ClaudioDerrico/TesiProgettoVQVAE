@@ -135,7 +135,7 @@ def extract_speed_from_hdf5(session_id):
 
 
 def preprocess_neural_data_only(extraction_result):
-    """Preprocessa solo i dati neurali, speed solo per selezione neuroni"""
+    """Preprocessa solo i dati neurali, SENZA dipendenza dalla velocità"""
     if extraction_result is None:
         print("   ⚠️ No valid data available")
         return None
@@ -144,21 +144,22 @@ def preprocess_neural_data_only(extraction_result):
     
     dff_data = extraction_result['dff_data']
     dff_timestamps = extraction_result['dff_timestamps']
-    speed_data = extraction_result.get('speed_data')
-    speed_timestamps = extraction_result.get('speed_timestamps')
-    
-    if speed_data is not None and speed_timestamps is not None and extraction_result['speed_valid']:
-        speed_aligned = np.interp(dff_timestamps, speed_timestamps, speed_data, 
-                                 left=speed_data[0], right=speed_data[-1])
-        speed_smooth = gaussian_filter1d(speed_aligned, sigma=5)
-    else:
-        print("   ⚠️ No valid speed data - using dummy values for neuron selection")
-        speed_smooth = np.random.randn(len(dff_timestamps)) * 0.1
+
+    # speed_data = extraction_result.get('speed_data')
+    # speed_timestamps = extraction_result.get('speed_timestamps')
+    # 
+    # if speed_data is not None and speed_timestamps is not None and extraction_result['speed_valid']:
+    #     speed_aligned = np.interp(dff_timestamps, speed_timestamps, speed_data, 
+    #                              left=speed_data[0], right=speed_data[-1])
+    #     speed_smooth = gaussian_filter1d(speed_aligned, sigma=5)
+    # else:
+    #     print("   ⚠️ No valid speed data - using dummy values for neuron selection")
+    #     speed_smooth = np.random.randn(len(dff_timestamps)) * 0.1
     
     return {
         'timestamps': dff_timestamps,
         'dff_traces': dff_data,
-        'speed_for_selection': speed_smooth,
+        # 'speed_for_selection': speed_smooth,
         'metadata': {
             'session_id': extraction_result['session_id'],
             'num_neurons': dff_data.shape[1] if dff_data.ndim == 2 else dff_data.shape[0],
@@ -177,7 +178,7 @@ class SimpleAllenBrainDataset(Dataset):
     def __init__(self, window_size=60, stride=50, min_neurons=30, 
                  augment=False, session_id=None, 
                  neuron_stride=30,  # stride sui neuroni
-                 use_neuron_sliding=True):  #  attiva sliding neuroni
+                 use_neuron_sliding=False):  #  attiva sliding neuroni
         """
         Args:
             window_size: finestra temporale (timesteps)
@@ -203,7 +204,7 @@ class SimpleAllenBrainDataset(Dataset):
         self._load_allen_data()
     
     def _load_allen_data(self):
-        """Load data preparando per sliding window sui neuroni."""
+        """Load data senza dipendenze dalla velocità."""
         print("🧠 Loading Allen Brain Observatory data...")
         print(f"Using session: {self.session_id}")
         print(f"Parameters: window_size={self.window_size}, stride={self.stride}")
@@ -211,7 +212,7 @@ class SimpleAllenBrainDataset(Dataset):
         
         extraction_result = extract_speed_from_hdf5(self.session_id)
         
-        if extraction_result:
+        if extraction_result and extraction_result.get('dff_data') is not None:
             processed_data = preprocess_neural_data_only(extraction_result)
             
             if processed_data:
@@ -233,24 +234,24 @@ class SimpleAllenBrainDataset(Dataset):
             print("  ⚠️ HDF5 extraction failed - falling back to Allen SDK")
             timestamps, dff_traces, _ = self._fallback_to_allen_sdk()
         
-        # 🆕 Preprocessing con sliding window sui neuroni E maschere neuroni
+        # 🆕 Preprocessing SENZA padding circolare
         (neural_windows, 
         masks_time, 
-        masks_neurons,  # 🆕
+        masks_neurons,
         neuron_indices) = self._preprocess_with_neuron_sliding(dff_traces)
 
         self.neural_data = torch.FloatTensor(neural_windows)
         self.masks_time = torch.BoolTensor(masks_time)
-        self.masks_neurons = torch.BoolTensor(masks_neurons)  # 🆕 Salva maschera neuroni
+        self.masks_neurons = torch.BoolTensor(masks_neurons)
         self.neuron_indices = neuron_indices
         self.total_neurons = dff_traces.shape[0]
 
         print(f"📊 Final dataset: {len(self)} windows")
         print(f"   Neural data shape: {self.neural_data.shape}")
         print(f"   Time masks shape: {self.masks_time.shape}")
-        print(f"   Neuron masks shape: {self.masks_neurons.shape}")  # 🆕
+        print(f"   Neuron masks shape: {self.masks_neurons.shape}")
         print(f"   Total neurons available: {self.total_neurons}")
-        print(f"   Neuron groups: {len(set([tuple(ni) for ni in neuron_indices]))}")
+        print(f"   Complete neuron groups: {len(set([tuple(ni) for ni in neuron_indices]))}")
 
     def _fallback_to_allen_sdk(self):
         """Fallback per caricare dati usando Allen SDK quando HDF5 fallisce"""
@@ -322,7 +323,7 @@ class SimpleAllenBrainDataset(Dataset):
 
     def _create_neuron_and_temporal_windows(self, neural_data):
         """
-        🆕 AGGIORNATO: Crea sliding windows sui NEURONI e TEMPO con padding circolare.
+        🆕 SENZA PADDING CIRCOLARE: Skippa finestre incomplete.
         
         Args:
             neural_data: (total_neurons, total_time)
@@ -330,67 +331,51 @@ class SimpleAllenBrainDataset(Dataset):
         Returns:
             neural_windows: (n_windows, min_neurons, window_size)
             masks_time: (n_windows, window_size) - maschera temporale
-            masks_neurons: (n_windows, min_neurons) - 🆕 maschera neuroni
+            masks_neurons: (n_windows, min_neurons) - tutti True (no padding)
             neuron_indices: list di liste con indici neuroni per ogni gruppo
         """
         total_neurons, total_time = neural_data.shape
         
         neural_windows = []
         masks_time = []
-        masks_neurons = []  # 🆕 Maschera per neuroni paddati
+        masks_neurons = []
         neuron_indices = []
         
-        # 🔄 Loop sui NEURONI (ogni neuron_stride neuroni)
+        # 🔄 Loop sui NEURONI con STRIDE
         neuron_group = 0
         for neuron_start in range(0, total_neurons, self.neuron_stride):
             neuron_end = neuron_start + self.min_neurons
             
-            # 🆕 Gestione padding circolare sui neuroni
+            # ✅ SKIPPA se non ci sono abbastanza neuroni (NO PADDING!)
             if neuron_end > total_neurons:
-                # Calcola quanti neuroni mancano
-                remaining_neurons = total_neurons - neuron_start
-                missing_neurons = self.min_neurons - remaining_neurons
-                
-                print(f"  🔄 Circular padding neuron group {neuron_group}: "
-                    f"{remaining_neurons} real neurons + {missing_neurons} padded from start")
-                
-                # Indici: neuroni reali + neuroni dall'inizio (circolare)
-                neuron_indices_group = list(range(neuron_start, total_neurons)) + \
-                                    list(range(missing_neurons))
-                
-                # 🆕 Maschera neuroni: True = reale, False = paddato
-                neuron_mask = np.ones(self.min_neurons, dtype=bool)
-                neuron_mask[remaining_neurons:] = False  # ← Neuroni paddati = False
-                
-                # Estrai dati con padding circolare
-                neuron_data = np.vstack([
-                    neural_data[neuron_start:total_neurons],  # Neuroni reali
-                    neural_data[:missing_neurons]              # Padding circolare
-                ])
-                
-            else:
-                # 🆕 Nessun padding necessario
-                neuron_indices_group = list(range(neuron_start, neuron_end))
-                neuron_mask = np.ones(self.min_neurons, dtype=bool)  # Tutti True
-                neuron_data = neural_data[neuron_start:neuron_end]
+                remaining = total_neurons - neuron_start
+                print(f"  ⚠️ Skipping incomplete neuron group {neuron_group}: "
+                    f"only {remaining}/{self.min_neurons} neurons available")
+                break
+            
+            # ✅ Usa SOLO neuroni completi
+            neuron_indices_group = list(range(neuron_start, neuron_end))
+            neuron_data = neural_data[neuron_start:neuron_end]
             
             # 🔄 Loop sul TEMPO (sliding temporale per questo gruppo di neuroni)
             temporal_windows, temporal_masks = self._create_temporal_windows_for_neurons(neuron_data)
             
-            # Aggiungi tutte le finestre temporali per questo gruppo di neuroni
+            # Aggiungi tutte le finestre temporali per questo gruppo
             for tw, tm in zip(temporal_windows, temporal_masks):
                 neural_windows.append(tw)
                 masks_time.append(tm)
-                masks_neurons.append(neuron_mask)  # 🆕 Stessa maschera neuroni per tutte le finestre temporali
+                # ✅ TUTTI i neuroni sono reali (no padding)
+                neuron_mask = np.ones(self.min_neurons, dtype=bool)
+                masks_neurons.append(neuron_mask)
                 neuron_indices.append(neuron_indices_group)
             
             neuron_group += 1
         
-        print(f"  ✅ Created {neuron_group} neuron groups × ~{len(temporal_windows)} temporal windows = {len(neural_windows)} total windows")
+        print(f"  ✅ Created {neuron_group} complete neuron groups × ~{len(temporal_windows)} temporal windows = {len(neural_windows)} total windows")
         
         return (np.array(neural_windows), 
                 np.array(masks_time), 
-                np.array(masks_neurons),  # 🆕 Restituisci maschera neuroni
+                np.array(masks_neurons),
                 neuron_indices)
     
     
@@ -514,7 +499,7 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neu
     """
     print(f"\n🎯 Creating MULTI-SESSION dataset from {len(session_ids)} sessions")
     print(f"   Window size: {window_size}, Stride: {stride}, Min neurons: {min_neurons}")
-    print(f"   🎲 Random neuron selection: {random_neuron_selection}")
+    
     print("="*70)
     
     datasets = []
@@ -529,7 +514,7 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neu
                 stride=stride,
                 min_neurons=min_neurons,
                 session_id=session_id,
-                random_neuron_selection=random_neuron_selection  
+              
             )
             
             datasets.append(dataset)
@@ -558,7 +543,7 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neu
 def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers=0, 
                                      window_size=60, stride=50, min_neurons=30, 
                                      use_multi_session=False,
-                                     random_neuron_selection=True):  
+                                     ):  
     """
     Factory function per creare dataloaders con selezione casuale neuroni.
     
@@ -570,7 +555,6 @@ def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers
     
     print(f"🧠 Creating calcium dataloaders:")
     print(f"   Multi-session: {use_multi_session}")
-    print(f"   Random neuron selection: {random_neuron_selection}")
     print(f"   Parameters: window={window_size}, stride={stride}, neurons={min_neurons}")
     
     if use_multi_session:
@@ -580,7 +564,7 @@ def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers
             window_size=window_size,
             stride=stride,
             min_neurons=min_neurons,
-            random_neuron_selection=random_neuron_selection  
+             
         )
     else:
         print(f"   Using single session: {TRAINING_SESSION_IDS[0]}")
@@ -589,7 +573,7 @@ def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers
             stride=stride,
             min_neurons=min_neurons,
             session_id=TRAINING_SESSION_IDS[0],
-            random_neuron_selection=random_neuron_selection 
+            
         )
     
     # Split dataset
@@ -626,7 +610,6 @@ def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers
         'min_neurons': min_neurons,
         'multi_session': use_multi_session,
         'num_sessions': len(TRAINING_SESSION_IDS) if use_multi_session else 1,
-        'random_neuron_selection': random_neuron_selection,  # 🆕
         'total_neurons_available': dataset.total_neurons if hasattr(dataset, 'total_neurons') else None
     }
     
