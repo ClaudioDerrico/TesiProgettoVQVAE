@@ -441,16 +441,19 @@ class SimpleAllenBrainDataset(Dataset):
 
     def _create_neuron_and_temporal_windows(self, neural_data):
         """
-        🆕 SENZA PADDING CIRCOLARE: Skippa finestre incomplete.
+        ✅ CON PADDING CIRCOLARE: Nessuna finestra viene scartata.
+        
+        Crea finestre temporali E sliding sui neuroni.
+        Se mancano neuroni per completare una finestra, usa padding circolare.
         
         Args:
             neural_data: (total_neurons, total_time)
         
         Returns:
             neural_windows: (n_windows, min_neurons, window_size)
-            masks_time: (n_windows, window_size) - maschera temporale
-            masks_neurons: (n_windows, min_neurons) - tutti True (no padding)
-            neuron_indices: list di liste con indici neuroni per ogni gruppo
+            masks_time: (n_windows, window_size) - True=reale, False=padding
+            masks_neurons: (n_windows, min_neurons) - True=reale, False=padding
+            neuron_indices: list di liste con indici neuroni (include indici circolari)
         """
         total_neurons, total_time = neural_data.shape
         
@@ -464,32 +467,55 @@ class SimpleAllenBrainDataset(Dataset):
         for neuron_start in range(0, total_neurons, self.neuron_stride):
             neuron_end = neuron_start + self.min_neurons
             
-            # ✅ SKIPPA se non ci sono abbastanza neuroni (NO PADDING!)
+            # ✅ NUOVO: Gestisci finestre incomplete con PADDING CIRCOLARE
             if neuron_end > total_neurons:
-                remaining = total_neurons - neuron_start
-                print(f"  ⚠️ Skipping incomplete neuron group {neuron_group}: "
-                    f"only {remaining}/{self.min_neurons} neurons available")
-                break
+                # Calcola quanti neuroni mancano
+                remaining_neurons = total_neurons - neuron_start
+                missing_neurons = self.min_neurons - remaining_neurons
+                
+                # Dati reali (gli ultimi neuroni disponibili)
+                neuron_data_real = neural_data[neuron_start:total_neurons]
+                
+                # Padding circolare: prendi i primi neuroni per completare
+                neuron_data_padding = neural_data[:missing_neurons]
+                
+                # Concatena: reali + padding
+                neuron_data = np.concatenate([neuron_data_real, neuron_data_padding], axis=0)
+                
+                # Indici dei neuroni (per riferimento/debug)
+                indices_real = list(range(neuron_start, total_neurons))
+                indices_padding = list(range(missing_neurons))  # Indices circolari
+                neuron_indices_group = indices_real + indices_padding
+                
+                # ✅ Maschera neuroni: True per reali, False per padding
+                neuron_mask_base = np.ones(self.min_neurons, dtype=bool)
+                neuron_mask_base[remaining_neurons:] = False  # Ultimi neuroni = padding
+                
+                print(f"  🔄 Neuron group {neuron_group}: [{neuron_start}:{total_neurons}] "
+                    f"+ circular padding [0:{missing_neurons}] ({missing_neurons} padded neurons)")
             
-            # ✅ Usa SOLO neuroni completi
-            neuron_indices_group = list(range(neuron_start, neuron_end))
-            neuron_data = neural_data[neuron_start:neuron_end]
+            else:
+                # ✅ Finestra completa (tutti neuroni reali, nessun padding)
+                neuron_indices_group = list(range(neuron_start, neuron_end))
+                neuron_data = neural_data[neuron_start:neuron_end]
+                
+                # Maschera neuroni: tutti True (nessun padding)
+                neuron_mask_base = np.ones(self.min_neurons, dtype=bool)
             
             # 🔄 Loop sul TEMPO (sliding temporale per questo gruppo di neuroni)
             temporal_windows, temporal_masks = self._create_temporal_windows_for_neurons(neuron_data)
             
-            # Aggiungi tutte le finestre temporali per questo gruppo
+            # Aggiungi tutte le finestre temporali per questo gruppo di neuroni
             for tw, tm in zip(temporal_windows, temporal_masks):
                 neural_windows.append(tw)
                 masks_time.append(tm)
-                # ✅ TUTTI i neuroni sono reali (no padding)
-                neuron_mask = np.ones(self.min_neurons, dtype=bool)
-                masks_neurons.append(neuron_mask)
+                masks_neurons.append(neuron_mask_base)  # ← Stessa maschera per tutte le finestre temporali
                 neuron_indices.append(neuron_indices_group)
             
             neuron_group += 1
         
-        print(f"  ✅ Created {neuron_group} complete neuron groups × ~{len(temporal_windows)} temporal windows = {len(neural_windows)} total windows")
+        print(f"  ✅ Created {neuron_group} neuron groups (including padded) "
+            f"× ~{len(temporal_windows)} temporal windows = {len(neural_windows)} total windows")
         
         return (np.array(neural_windows), 
                 np.array(masks_time), 
