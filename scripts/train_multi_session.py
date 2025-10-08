@@ -239,12 +239,13 @@ def main():
     # 🎯 W&B config
     wandb.init(
         project="calcium-vqvae-multi-session",
-        name="10sessions-30x60-stride50",
+        name="10sessions-best30neurons",  # ← Nuovo nome
         config={
             "model_type": "Enhanced_CalciumVQVAE",
             "num_sessions_train": len(TRAINING_SESSION_IDS),
             "num_sessions_test": len(TEST_SESSION_IDS),
             "num_neurons": 30,
+            "neuron_selection": "combined",  # ← NUOVO
             "window_size": 60,  # NUOVO
             "stride": 50,       # NUOVO
             "num_hiddens": 512,
@@ -253,8 +254,8 @@ def main():
             "num_embeddings": 2048,
             "embedding_dim": 256,
             "commitment_cost": 0.05,
-            "batch_size": 16,
-            "learning_rate": 0.001,
+            "batch_size": 128,
+            "learning_rate": 0.003,
             "max_epochs": 200,
             "patience": 50,
             "vq_weight": 0.01,
@@ -272,24 +273,28 @@ def main():
     print("="*70)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
     print(f"Using device: {device}")
     
     try:
-        # Dataset loading - MULTI-SESSION
-        print("\n📊 Caricamento dataset MULTI-SESSION...")
+        # Dataset loading con SELEZIONE INTELLIGENTE
+        print("\n📊 Caricamento dataset MULTI-SESSION con selezione neuroni...")
         train_loader, test_loader, dataset_info = create_simple_calcium_dataloaders(
-        batch_size=wandb.config.batch_size,
-        window_size=wandb.config.window_size,
-        stride=wandb.config.stride,
-        min_neurons=wandb.config.num_neurons,
-        use_multi_session=True,
+            batch_size=wandb.config.batch_size,
+            window_size=wandb.config.window_size,
+            stride=wandb.config.stride,
+            min_neurons=wandb.config.num_neurons,
+            use_multi_session=True,
+            use_neuron_sliding=False,  # NO sliding per training
+            neuron_selection_method='combined'  # ← SELEZIONE INTELLIGENTE
         )
         
         print(f"\n✅ Dataset multi-session caricato:")
         print(f"   Sessioni: {dataset_info['num_sessions']}")
         print(f"   Train samples: {dataset_info['train_samples']}")
         print(f"   Test samples: {dataset_info['test_samples']}")
-        print(f"   Neural shape: {dataset_info['neural_shape']}")
+        print(f"   🔍 TRAINING: Using BEST 30 neurons per session (combined selection)")
         
         # 🚀 MODELLO
         print("\n🏗️ Creazione modello enhanced...")

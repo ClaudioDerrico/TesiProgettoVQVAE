@@ -50,8 +50,103 @@ TEST_SESSION_IDS = [
 # SESSIONE ORIGINALE (ora deprecata, era usata prima per training)
 ORIGINAL_TRAINING_SESSION = 501474098
 
-print(f"📋 Configurate {len(TRAINING_SESSION_IDS)} sessioni per TRAINING")
-print(f"📋 Configurate {len(TEST_SESSION_IDS)} sessioni per TEST CROSS-SESSION")
+#print(f"📋 Configurate {len(TRAINING_SESSION_IDS)} sessioni per TRAINING")
+#print(f"📋 Configurate {len(TEST_SESSION_IDS)} sessioni per TEST CROSS-SESSION")
+
+def select_best_neurons(dff_traces, n_neurons=30, method='variance'):
+    """
+    Seleziona i migliori n neuroni da un dataset.
+    
+    Args:
+        dff_traces: (total_neurons, time) array
+        n_neurons: numero di neuroni da selezionare
+        method: 'variance', 'snr', o 'combined'
+    
+    Returns:
+        selected_indices: array degli indici dei neuroni selezionati (ordinati)
+        quality_scores: dict con scores di qualità
+    """
+    total_neurons = dff_traces.shape[0]
+    
+    if total_neurons <= n_neurons:
+        print(f"  ⚠️ Session has only {total_neurons} neurons, using all")
+        return np.arange(total_neurons), {}
+    
+    print(f"  🔍 Selecting best {n_neurons} neurons from {total_neurons} using method='{method}'")
+    
+    # 1. Calcola varianza (attività neurale)
+    variances = np.var(dff_traces, axis=1)
+    
+    # 2. Calcola SNR (segnale su rumore)
+    # SNR = std(signal) / std(noise stimato come differenze temporali)
+    snr_scores = np.zeros(total_neurons)
+    for i in range(total_neurons):
+        trace = dff_traces[i]
+        signal_std = np.std(trace)
+        noise_std = np.std(np.diff(trace))  # Rumore = differenze temporali
+        snr_scores[i] = signal_std / (noise_std + 1e-8)
+    
+    # 3. Calcola "sparsity" (preferisci neuroni con picchi chiari)
+    sparsity_scores = np.zeros(total_neurons)
+    for i in range(total_neurons):
+        trace = dff_traces[i]
+        # Kurtosis misura "peakiness" della distribuzione
+        from scipy.stats import kurtosis
+        sparsity_scores[i] = kurtosis(trace)
+    
+    # 4. Combina criteri
+    if method == 'variance':
+        # Solo varianza
+        combined_scores = variances
+        
+    elif method == 'snr':
+        # Solo SNR
+        combined_scores = snr_scores
+        
+    elif method == 'combined':
+        # Combina tutti i criteri (normalizzati)
+        from sklearn.preprocessing import StandardScaler
+        
+        # Normalizza ogni metrica
+        var_norm = StandardScaler().fit_transform(variances.reshape(-1, 1)).flatten()
+        snr_norm = StandardScaler().fit_transform(snr_scores.reshape(-1, 1)).flatten()
+        sparse_norm = StandardScaler().fit_transform(sparsity_scores.reshape(-1, 1)).flatten()
+        
+        # Combina (pesi personalizzabili)
+        combined_scores = (
+            0.5 * var_norm +      # 50% varianza (attività)
+            0.3 * snr_norm +      # 30% SNR (qualità segnale)
+            0.2 * sparse_norm     # 20% sparsity (picchi chiari)
+        )
+    
+    else:
+        raise ValueError(f"Unknown method: {method}")
+    
+    # 5. Seleziona top N neuroni
+    top_indices = np.argsort(combined_scores)[-n_neurons:]
+    
+    # Ordina gli indici per mantenere l'ordine originale
+    selected_indices = np.sort(top_indices)
+    
+    # 6. Statistiche di qualità
+    quality_scores = {
+        'selected_indices': selected_indices.tolist(),
+        'method': method,
+        'total_neurons': total_neurons,
+        'selected_neurons': n_neurons,
+        'mean_variance': np.mean(variances[selected_indices]),
+        'mean_snr': np.mean(snr_scores[selected_indices]),
+        'mean_sparsity': np.mean(sparsity_scores[selected_indices]),
+        'variance_percentile': np.percentile(variances, (1 - n_neurons/total_neurons) * 100),
+        'excluded_variance': np.mean(variances[~np.isin(np.arange(total_neurons), selected_indices)])
+    }
+    
+    print(f"  ✅ Selected neurons: {selected_indices[:5]}...{selected_indices[-5:]}")
+    print(f"     Mean variance (selected): {quality_scores['mean_variance']:.4f}")
+    print(f"     Mean variance (excluded): {quality_scores['excluded_variance']:.4f}")
+    print(f"     Mean SNR: {quality_scores['mean_snr']:.2f}")
+    
+    return selected_indices, quality_scores
 
 
 
@@ -174,26 +269,27 @@ class SimpleAllenBrainDataset(Dataset):
     Allen Brain Observatory dataset con sliding window su NEURONI e TEMPO.
     Opzione A: Copre TUTTI i neuroni dividendoli in finestre da 30.
     """
-    
     def __init__(self, window_size=60, stride=50, min_neurons=30, 
                  augment=False, session_id=None, 
-                 neuron_stride=30,  # stride sui neuroni
-                 use_neuron_sliding=False):  #  attiva sliding neuroni
+                 neuron_stride=30,
+                 use_neuron_sliding=False,
+                 neuron_selection_method='combined'):  
         """
         Args:
-            window_size: finestra temporale (timesteps)
-            stride: stride temporale
-            min_neurons: numero neuroni per finestra
-            neuron_stride: stride sui neuroni (default=30, no overlap)
-            use_neuron_sliding: se True, fa sliding window sui neuroni
+            neuron_selection_method: 'variance', 'snr', 'combined', o 'first'
+                                    - 'first': primi N neuroni (vecchio comportamento)
+                                    - 'variance': seleziona per varianza
+                                    - 'snr': seleziona per SNR
+                                    - 'combined': combina più criteri (consigliato)
         """
         
         self.window_size = window_size
         self.stride = stride
         self.min_neurons = min_neurons
         self.augment = augment
-        self.neuron_stride = neuron_stride  # 🆕
-        self.use_neuron_sliding = use_neuron_sliding  # 🆕
+        self.neuron_stride = neuron_stride
+        self.use_neuron_sliding = use_neuron_sliding
+        self.neuron_selection_method = neuron_selection_method  # ← NUOVO
         
         if session_id is None:
             self.session_id = TRAINING_SESSION_IDS[0]
@@ -291,32 +387,54 @@ class SimpleAllenBrainDataset(Dataset):
     
     def _preprocess_with_neuron_sliding(self, dff_traces):
         """
-        🆕 AGGIORNATO: Preprocessing con sliding window e maschere per neuroni.
-        
-        Returns:
-            neural_windows: array di finestre (n_windows, min_neurons, window_size)
-            masks_time: maschere temporali
-            masks_neurons: 🆕 maschere neuroni (True = reale, False = paddato)
-            neuron_indices: lista di quali neuroni per ogni gruppo
+        Preprocessing con selezione intelligente dei neuroni.
         """
-        print(f"  🆕 Creating sliding windows on NEURONS and TIME...")
+        print(f"  🔧 Preprocessing con use_neuron_sliding={self.use_neuron_sliding}")
+        print(f"  🔧 Neuron selection method: {self.neuron_selection_method}")
         
         # Normalize neural data
         dff_normalized = zscore(dff_traces, axis=1)
         dff_normalized = np.nan_to_num(dff_normalized, nan=0.0, posinf=0.0, neginf=0.0)
         
         if self.use_neuron_sliding:
-            # 🆕 SLIDING WINDOW SUI NEURONI con maschere
+            # 🔵 SLIDING WINDOW SUI NEURONI (per TEST cross-session)
+            print(f"  🔵 SLIDING on neurons: stride={self.neuron_stride}, covering all {dff_normalized.shape[0]} neurons")
             (neural_windows, 
             masks_time, 
-            masks_neurons,  # 🆕
+            masks_neurons,
             neuron_indices) = self._create_neuron_and_temporal_windows(dff_normalized)
         else:
-            # 🔴 VECCHIO: Solo primi min_neurons neuroni
-            print(f"  ⚠️ Using only FIRST {self.min_neurons} neurons (no sliding)")
-            neural_windows, masks_time = self._create_neural_windows(dff_normalized[:self.min_neurons])
-            masks_neurons = np.ones((len(neural_windows), self.min_neurons), dtype=bool)  # 🆕 Tutti True
-            neuron_indices = [list(range(self.min_neurons))] * len(neural_windows)
+            # 🔴 SELEZIONA MIGLIORI min_neurons NEURONI (per TRAINING)
+            print(f"  🔴 SELECTING best {self.min_neurons} neurons from {dff_normalized.shape[0]} total")
+            
+            if self.neuron_selection_method == 'first':
+                # Vecchio comportamento: primi N neuroni
+                selected_indices = np.arange(self.min_neurons)
+                quality_scores = {'method': 'first'}
+                print(f"     Using FIRST {self.min_neurons} neurons (no selection)")
+            else:
+                # Nuovo: selezione intelligente
+                selected_indices, quality_scores = select_best_neurons(
+                    dff_normalized, 
+                    n_neurons=self.min_neurons,
+                    method=self.neuron_selection_method
+                )
+            
+            # Salva info sulla selezione
+            self.selected_neuron_indices = selected_indices
+            self.neuron_quality_scores = quality_scores
+            
+            # Estrai solo i neuroni selezionati
+            dff_selected = dff_normalized[selected_indices]
+            
+            # Crea finestre temporali solo su questi neuroni
+            neural_windows, masks_time = self._create_neural_windows(dff_selected)
+            
+            # Tutte le maschere neuroni sono True (tutti neuroni reali)
+            masks_neurons = np.ones((len(neural_windows), self.min_neurons), dtype=bool)
+            
+            # Indici: sempre gli stessi neuroni selezionati
+            neuron_indices = [selected_indices.tolist()] * len(neural_windows)
         
         return neural_windows, masks_time, masks_neurons, neuron_indices
     
@@ -493,13 +611,21 @@ class SimpleAllenBrainDataset(Dataset):
 
 
 def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neurons=30,
-                                random_neuron_selection=True):  # 🆕
+                                use_neuron_sliding=False,
+                                neuron_selection_method='combined'):  # ← NUOVO
     """
-    Crea un dataset combinato da multiple sessioni con selezione casuale neuroni.
+    Args:
+        neuron_selection_method: come selezionare neuroni quando use_neuron_sliding=False
+                                'combined' (default): usa criteri multipli
+                                'variance': solo varianza
+                                'snr': solo signal-to-noise
+                                'first': primi N neuroni (non consigliato)
     """
     print(f"\n🎯 Creating MULTI-SESSION dataset from {len(session_ids)} sessions")
     print(f"   Window size: {window_size}, Stride: {stride}, Min neurons: {min_neurons}")
-    
+    print(f"   🎲 Neuron sliding: {use_neuron_sliding}")
+    if not use_neuron_sliding:
+        print(f"   🔍 Neuron selection: {neuron_selection_method}")
     print("="*70)
     
     datasets = []
@@ -514,11 +640,18 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neu
                 stride=stride,
                 min_neurons=min_neurons,
                 session_id=session_id,
-              
+                use_neuron_sliding=use_neuron_sliding,
+                neuron_selection_method=neuron_selection_method  # ← PASSA IL PARAMETRO
             )
             
             datasets.append(dataset)
             print(f"✅ Session {session_id}: {len(dataset)} windows loaded")
+            
+            # Stampa info sulla selezione neuroni
+            if not use_neuron_sliding and hasattr(dataset, 'neuron_quality_scores'):
+                scores = dataset.neuron_quality_scores
+                print(f"   📊 Neuron quality: variance={scores.get('mean_variance', 0):.4f}, "
+                      f"SNR={scores.get('mean_snr', 0):.2f}")
             
         except Exception as e:
             print(f"❌ Failed to load session {session_id}: {e}")
@@ -533,28 +666,37 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=50, min_neu
     print(f"✅ MULTI-SESSION DATASET CREATED")
     print(f"   Total sessions: {len(datasets)}")
     print(f"   Total windows: {len(combined_dataset)}")
-    print(f"   Window shape: ({min_neurons} neurons [random], {window_size} timesteps)")
-    print(f"   🎲 Each batch uses different random {min_neurons} neurons")
-    print("="*70)
+    print(f"   Window shape: ({min_neurons} neurons, {window_size} timesteps)")
+    # ✅ NUOVO
+    if use_neuron_sliding:
+        if hasattr(dataset, 'total_neurons'):
+            print(f"   🔵 SLIDING: Using neuron groups from {dataset.total_neurons} total neurons")
+    else:
+        print(f"   🔴 SELECTION: Using best {min_neurons} neurons per session ({neuron_selection_method})")
     
     return combined_dataset
+
+
 
 
 def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers=0, 
                                      window_size=60, stride=50, min_neurons=30, 
                                      use_multi_session=False,
-                                     ):  
+                                     use_neuron_sliding=False,
+                                     neuron_selection_method='combined'):  # ← NUOVO
     """
-    Factory function per creare dataloaders con selezione casuale neuroni.
+    Factory function per creare dataloaders.
     
     Args:
-        ...
-        random_neuron_selection: se True, seleziona neuroni casuali ad ogni batch
+        neuron_selection_method: 'combined' (default), 'variance', 'snr', o 'first'
     """
     from torch.utils.data import DataLoader
     
     print(f"🧠 Creating calcium dataloaders:")
     print(f"   Multi-session: {use_multi_session}")
+    print(f"   Neuron sliding: {use_neuron_sliding}")
+    if not use_neuron_sliding:
+        print(f"   Neuron selection: {neuron_selection_method}")
     print(f"   Parameters: window={window_size}, stride={stride}, neurons={min_neurons}")
     
     if use_multi_session:
@@ -564,7 +706,8 @@ def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers
             window_size=window_size,
             stride=stride,
             min_neurons=min_neurons,
-             
+            use_neuron_sliding=use_neuron_sliding,
+            neuron_selection_method=neuron_selection_method  # ← PASSA IL PARAMETRO
         )
     else:
         print(f"   Using single session: {TRAINING_SESSION_IDS[0]}")
@@ -573,7 +716,8 @@ def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers
             stride=stride,
             min_neurons=min_neurons,
             session_id=TRAINING_SESSION_IDS[0],
-            
+            use_neuron_sliding=use_neuron_sliding,
+            neuron_selection_method=neuron_selection_method  # ← PASSA IL PARAMETRO
         )
     
     # Split dataset
@@ -598,27 +742,32 @@ def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers
     
     # Info
     sample = dataset[0]
-    neural_shape = sample.shape if isinstance(sample, torch.Tensor) else sample[0].shape
+    neural_shape = sample[0].shape if isinstance(sample, (list, tuple)) else sample.shape
     
     dataset_info = {
-        'total_samples': total_size,
-        'train_samples': train_size,
-        'test_samples': test_size,
-        'neural_shape': neural_shape,
-        'window_size': window_size,
-        'stride': stride,
-        'min_neurons': min_neurons,
-        'multi_session': use_multi_session,
-        'num_sessions': len(TRAINING_SESSION_IDS) if use_multi_session else 1,
-        'total_neurons_available': dataset.total_neurons if hasattr(dataset, 'total_neurons') else None
+    'total_samples': total_size,
+    'train_samples': train_size,
+    'test_samples': test_size,
+    'neural_shape': neural_shape,
+    'window_size': window_size,
+    'stride': stride,
+    'min_neurons': min_neurons,
+    'multi_session': use_multi_session,
+    'num_sessions': len(TRAINING_SESSION_IDS) if use_multi_session else 1,
+    'use_neuron_sliding': use_neuron_sliding,
+    'neuron_selection_method': neuron_selection_method,  # ← AGGIUNGI QUESTA RIGA
+    'total_neurons_available': dataset.total_neurons if hasattr(dataset, 'total_neurons') else None
     }
     
     print(f"✅ Dataloaders created!")
     print(f"   Total samples: {total_size}")
     print(f"   Train: {train_size}, Test: {test_size}")
     print(f"   Neural shape per sample: {neural_shape}")
-    if hasattr(dataset, 'total_neurons'):
-        print(f"   🎲 Randomly selecting {min_neurons} from {dataset.total_neurons} neurons each time")
+    if use_neuron_sliding:
+        if hasattr(dataset, 'total_neurons'):
+            print(f"   🔵 SLIDING: Using neuron groups from {dataset.total_neurons} total neurons")
+    else:
+        print(f"   🔴 FIXED: Using only first {min_neurons} neurons per session")
     
     return train_loader, test_loader, dataset_info
 

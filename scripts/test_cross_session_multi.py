@@ -97,7 +97,7 @@ def load_trained_model(checkpoint_path, config, device):
 
 def evaluate_session(model, session_id, device, window_size, stride, max_samples=None):
     """
-    Valuta il modello su una specifica sessione e logga heatmap SOLO su W&B
+    Valuta il modello su una specifica sessione con SLIDING sui neuroni
     """
     
     print(f"\n{'='*70}")
@@ -105,15 +105,18 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
     print(f"{'='*70}")
     
     try:
-        # Carica dataset
+        # Carica dataset con SLIDING sui neuroni
         dataset = SimpleAllenBrainDataset(
             window_size=window_size,
             stride=stride,
             min_neurons=30,
             session_id=session_id,
             neuron_stride=30,
-            use_neuron_sliding=True
+            use_neuron_sliding=True  # ← TRUE per TEST CROSS-SESSION
         )
+        
+        print(f"   🔵 TEST MODE: Using neuron sliding window")
+        print(f"   🔵 Will test on ALL neuron groups from this session")
         
         loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0)
         
