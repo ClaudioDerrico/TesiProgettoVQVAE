@@ -4,7 +4,7 @@ Training script per VQ-VAE su MULTI-SESSIONE con nuovi parametri:
 - 10 sessioni di training (NUOVE, mai usate)
 - 3 sessioni di test cross-session (quelle precedenti)
 - Window size: 30 neuroni x 60 timesteps (era 50)
-- Stride: 50 timesteps (era 10)
+- Stride: 10 timesteps (era 50)
 """
 
 import sys
@@ -239,23 +239,23 @@ def main():
     # 🎯 W&B config
     wandb.init(
         project="calcium-vqvae-multi-session",
-        name="10sessions-best30neurons",  # ← Nuovo nome
+        name="10sessions-random30neurons",  # ← Nuovo nome
         config={
             "model_type": "Enhanced_CalciumVQVAE",
             "num_sessions_train": len(TRAINING_SESSION_IDS),
             "num_sessions_test": len(TEST_SESSION_IDS),
             "num_neurons": 30,
-            "neuron_selection": "combined",  # ← NUOVO
+            "neuron_selection": "random",  # ← NUOVO
             "window_size": 60,  # NUOVO
-            "stride": 50,       # NUOVO
+            "stride": 10,       # NUOVO
             "num_hiddens": 512,
             "num_residual_layers": 6,
             "num_residual_hiddens": 256,
             "num_embeddings": 2048,
             "embedding_dim": 256,
             "commitment_cost": 0.05,
-            "batch_size": 128,
-            "learning_rate": 0.003,
+            "batch_size": 16,
+            "learning_rate": 0.001,
             "max_epochs": 200,
             "patience": 50,
             "vq_weight": 0.01,
@@ -269,7 +269,7 @@ def main():
     print(f"   {TRAINING_SESSION_IDS}")
     print(f"📊 Test sessions (cross-session): {len(TEST_SESSION_IDS)}")
     print(f"   {TEST_SESSION_IDS}")
-    print(f"📐 Window: 30 neurons x 60 timesteps, stride=50")
+    print(f"📐 Window: 30 neurons x 60 timesteps, stride=10")
     print("="*70)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -279,7 +279,7 @@ def main():
     
     try:
         # Dataset loading con SELEZIONE INTELLIGENTE
-        print("\n📊 Caricamento dataset MULTI-SESSION con selezione neuroni...")
+        print("\n📊 Caricamento dataset MULTI-SESSION con selezione casuale...")
         train_loader, test_loader, dataset_info = create_simple_calcium_dataloaders(
             batch_size=wandb.config.batch_size,
             window_size=wandb.config.window_size,
@@ -287,15 +287,33 @@ def main():
             min_neurons=wandb.config.num_neurons,
             use_multi_session=True,
             use_neuron_sliding=False,  # NO sliding per training
-            neuron_selection_method='combined'  # ← SELEZIONE INTELLIGENTE
+            
         )
-        
+
+                # 🔍 DEBUG: Verifica cosa è stato caricato
+        print(f"\n🔍 DEBUG DATASET:")
+        print(f"   Total samples: {dataset_info['total_samples']}")
+        print(f"   Train samples: {dataset_info['train_samples']}")
+        print(f"   Test samples: {dataset_info['test_samples']}")
+        print(f"   Num sessions: {dataset_info['num_sessions']}")
+
+        # 🔍 Ispeziona un batch
+        sample_batch = next(iter(train_loader))
+        print(f"\n🔍 DEBUG BATCH:")
+        if isinstance(sample_batch, (list, tuple)):
+            print(f"   Batch type: tuple/list con {len(sample_batch)} elementi")
+            for i, item in enumerate(sample_batch):
+                if isinstance(item, torch.Tensor):
+                    print(f"   Element {i}: shape={item.shape}, dtype={item.dtype}")
+        else:
+            print(f"   Batch shape: {sample_batch.shape}")
+
         print(f"\n✅ Dataset multi-session caricato:")
         print(f"   Sessioni: {dataset_info['num_sessions']}")
         print(f"   Train samples: {dataset_info['train_samples']}")
         print(f"   Test samples: {dataset_info['test_samples']}")
-        print(f"   🔍 TRAINING: Using BEST 30 neurons per session (combined selection)")
-        
+        print(f"   🎲 TRAINING: Using RANDOM 30 neurons per session")
+                
         # 🚀 MODELLO
         print("\n🏗️ Creazione modello enhanced...")
         model = create_enhanced_calcium_vqvae().to(device)
@@ -439,7 +457,7 @@ def main():
             'model_config': {
                 'num_neurons': 30,
                 'window_size': 60,
-                'stride': 50,
+                'stride': 10, # da 50 a 10 per compatibilità
                 'num_hiddens': 512,
                 'num_residual_layers': 6,
                 'num_residual_hiddens': 256,
