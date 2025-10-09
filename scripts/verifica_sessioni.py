@@ -25,7 +25,7 @@ print("✅ datasets.calcium importato")  # ← TEST 5
 
 # CONFIGURAZIONE
 WINDOW_SIZE = 60
-STRIDE = 10
+STRIDE = 50
 MIN_NEURONS = 30
 NEURON_STRIDE = 30
 

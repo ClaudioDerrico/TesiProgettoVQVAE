@@ -118,7 +118,7 @@ class SimpleAllenBrainDataset(Dataset):
     Carica dati neurali e crea sliding windows temporali.
     """
     
-    def __init__(self, window_size=60, stride=10, min_neurons=30, 
+    def __init__(self, window_size=60, stride=50, min_neurons=30, 
                  session_id=None, neuron_stride=30, use_neuron_sliding=False):
         
         self.window_size = window_size
@@ -146,8 +146,22 @@ class SimpleAllenBrainDataset(Dataset):
         if extraction_result is None or not extraction_result['success']:
             raise RuntimeError(f"Failed to load session {self.session_id}")
         
-        dff_traces = extraction_result['dff_data']  # Shape: (neurons, time)
-        
+        dff_traces = extraction_result['dff_data']
+        print(f"  📊 Raw data BEFORE check: {dff_traces.shape}")
+
+        # Controllo asse neuroni/tempo
+        n1, n2 = dff_traces.shape
+        # ipotesi: neuroni << tempo
+        if n1 < n2:
+            # allora è (neurons, time) corretto
+            pass
+        else:
+            # allora è (time, neurons) → trasponi!
+            print("⚠️ Detected shape (time, neurons) → TRASPONGO")
+            dff_traces = dff_traces.T
+
+        print(f"  ✅ Data shape AFTER check: {dff_traces.shape}")
+
         print(f"  📊 Raw data: {dff_traces.shape}")
         
         # Crea finestre temporali (con o senza sliding sui neuroni)
@@ -287,7 +301,7 @@ class SimpleAllenBrainDataset(Dataset):
                 self.masks_neurons[idx])
 
 
-def create_multi_session_dataset(session_ids, window_size=60, stride=10, 
+def create_multi_session_dataset(session_ids, window_size=60, stride=50, 
                                 min_neurons=30, use_neuron_sliding=False):
     """
     Crea dataset da multiple sessioni.
@@ -343,7 +357,7 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=10,
 
 
 def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers=0, 
-                                     window_size=60, stride=10, min_neurons=30, 
+                                     window_size=60, stride=50, min_neurons=30, 
                                      use_multi_session=False, use_neuron_sliding=False):
     """
     Factory function per creare dataloaders.

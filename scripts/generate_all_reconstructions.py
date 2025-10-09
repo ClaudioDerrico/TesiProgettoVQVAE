@@ -328,7 +328,7 @@ def main():
         print("\nCaricando dataset...")
         dataset = SimpleAllenBrainDataset(
             window_size=50, 
-            stride=10, 
+            stride=50, 
             min_neurons=30
         )
         

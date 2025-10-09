@@ -4,7 +4,7 @@ Training script per VQ-VAE su MULTI-SESSIONE con nuovi parametri:
 - 10 sessioni di training (NUOVE, mai usate)
 - 3 sessioni di test cross-session (quelle precedenti)
 - Window size: 30 neuroni x 60 timesteps (era 50)
-- Stride: 10 timesteps (era 50)
+- Stride: 50 timesteps (era 10)
 """
 
 import sys
@@ -247,15 +247,15 @@ def main():
             "num_neurons": 30,
             "neuron_selection": "random",  # ← NUOVO
             "window_size": 60,  # NUOVO
-            "stride": 10,       # NUOVO
+            "stride": 50,       # NUOVO
             "num_hiddens": 512,
             "num_residual_layers": 6,
             "num_residual_hiddens": 256,
             "num_embeddings": 2048,
             "embedding_dim": 256,
             "commitment_cost": 0.05,
-            "batch_size": 16,
-            "learning_rate": 0.001,
+            "batch_size": 64,
+            "learning_rate": 0.002,
             "max_epochs": 200,
             "patience": 50,
             "vq_weight": 0.01,
@@ -269,7 +269,7 @@ def main():
     print(f"   {TRAINING_SESSION_IDS}")
     print(f"📊 Test sessions (cross-session): {len(TEST_SESSION_IDS)}")
     print(f"   {TEST_SESSION_IDS}")
-    print(f"📐 Window: 30 neurons x 60 timesteps, stride=10")
+    print(f"📐 Window: 30 neurons x 60 timesteps, stride=50")
     print("="*70)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -403,15 +403,7 @@ def main():
                     best_train_loss = current_train_loss
                     patience_counter = 0
                     
-                    wandb.log({
-                        'best/train_loss': current_train_loss,
-                        'best/test_mse': current_test_mse,
-                        'best/r_squared': test_metrics['test/r_squared'],
-                        'best/epoch': epoch
-                    })
                     
-                    if current_train_loss < 0.05:
-                        print(f"💾 Salvando modello con train loss = {current_train_loss:.6f}")
                 else:
                     patience_counter += 1
                 
@@ -457,7 +449,7 @@ def main():
             'model_config': {
                 'num_neurons': 30,
                 'window_size': 60,
-                'stride': 10, # da 50 a 10 per compatibilità
+                'stride': 50, # da 10 a 50 per compatibilità
                 'num_hiddens': 512,
                 'num_residual_layers': 6,
                 'num_residual_hiddens': 256,
