@@ -89,11 +89,7 @@ def extract_neural_data_from_hdf5(session_id):
                 
                 dff_data = f[dff_path][:]
                 dff_timestamps = f[dff_ts_path][:]
-                
-                # Assicura shape corretto: (neurons, time)
-                if dff_data.ndim == 2 and dff_data.shape[0] != dff_timestamps.shape[0]:
-                    dff_data = dff_data.T
-                    print("   🔄 Transposed to (neurons, time)")
+
                 
                 print(f"   📊 Shape: {dff_data.shape}")
                 
@@ -135,10 +131,10 @@ class SimpleAllenBrainDataset(Dataset):
         self._load_allen_data()
     
     def _load_allen_data(self):
-        """Carica dati neurali e crea finestre."""
+        """Carica dati neurali e crea finestre COMPLETE."""
         print(f"🧠 Loading session: {self.session_id}")
         print(f"   Parameters: window={self.window_size}, stride={self.stride}")
-        print(f"   Mode: {'SLIDING on neurons' if self.use_neuron_sliding else 'RANDOM neurons'}")
+        print(f"   Mode: {'SLIDING on neurons (TEST)' if self.use_neuron_sliding else 'RANDOM 30 neurons (TRAIN)'}")
         
         # Estrai dati grezzi
         extraction_result = extract_neural_data_from_hdf5(self.session_id)
@@ -147,91 +143,90 @@ class SimpleAllenBrainDataset(Dataset):
             raise RuntimeError(f"Failed to load session {self.session_id}")
         
         dff_traces = extraction_result['dff_data']
-        print(f"  📊 Raw data BEFORE check: {dff_traces.shape}")
+        print(f"  📊 Raw data from HDF5: {dff_traces.shape}")
 
-        # Controllo asse neuroni/tempo
+        # ✅ LOGICA CORRETTA: neuroni < timepoints nel calcium imaging
         n1, n2 = dff_traces.shape
-        # ipotesi: neuroni << tempo
-        if n1 < n2:
-            # allora è (neurons, time) corretto
-            pass
-        else:
-            # allora è (time, neurons) → trasponi!
-            print("⚠️ Detected shape (time, neurons) → TRASPONGO")
-            dff_traces = dff_traces.T
-
-        print(f"  ✅ Data shape AFTER check: {dff_traces.shape}")
-
-        print(f"  📊 Raw data: {dff_traces.shape}")
         
-        # Crea finestre temporali (con o senza sliding sui neuroni)
+        # Euristica: la dimensione PIÙ GRANDE è quasi sempre TIME
+        if n1 > n2:
+            # n1 è probabilmente TIME → trasponi
+            print(f"  🔄 Detected (time={n1}, neurons={n2}) → Transposing...")
+            dff_traces = dff_traces.T
+            n_neurons = n2
+            n_timepoints = n1
+        else:
+            # n1 è probabilmente NEURONS → già corretto
+            print(f"  ✅ Detected (neurons={n1}, time={n2}) → No transpose needed")
+            n_neurons = n1
+            n_timepoints = n2
+        
+        print(f"  ✅ Final shape: ({n_neurons} neurons, {n_timepoints} timepoints)")
+        print(f"  📊 Recording duration: ~{n_timepoints/30:.1f}s @ 30Hz")
+        
+        # Sanity checks
+        if n_neurons > 1000:
+            print(f"  ⚠️ WARNING: Unusually high neuron count ({n_neurons})")
+        if n_timepoints < 1000:
+            print(f"  ⚠️ WARNING: Very short recording ({n_timepoints} timepoints)")
+        
+        # Ora dff_traces è GARANTITO essere (neurons, time)
+        
         if self.use_neuron_sliding:
-            # TEST: sliding su tutti i neuroni
+            # TEST MODE
             neural_windows, masks_time, masks_neurons, neuron_indices = \
                 self._create_neuron_and_temporal_windows(dff_traces)
+            
+            self.neural_data = torch.FloatTensor(neural_windows)
+            self.masks_time = torch.BoolTensor(masks_time)
+            self.masks_neurons = torch.BoolTensor(masks_neurons)
+            self.neuron_indices = neuron_indices
+            
         else:
-            # TRAINING: seleziona neuroni casuali
+            # TRAINING MODE
             selected_indices = select_random_neurons(dff_traces, self.min_neurons)
-            dff_selected = dff_traces[selected_indices]
+            dff_selected = dff_traces[selected_indices]  # (30, time)
             
-            neural_windows, masks_time = self._create_temporal_windows(dff_selected)
+            neural_windows = self._create_temporal_windows(dff_selected)
             
-            # Tutte le maschere neuroni sono True (tutti neuroni reali)
-            masks_neurons = np.ones((len(neural_windows), self.min_neurons), dtype=bool)
-            neuron_indices = [selected_indices.tolist()] * len(neural_windows)
+            self.neural_data = torch.FloatTensor(neural_windows)
+            self.masks_time = None
+            self.masks_neurons = None
+            self.neuron_indices = [selected_indices.tolist()] * len(neural_windows)
         
-        # Converti in tensori
-        self.neural_data = torch.FloatTensor(neural_windows)
-        self.masks_time = torch.BoolTensor(masks_time)
-        self.masks_neurons = torch.BoolTensor(masks_neurons)
-        self.neuron_indices = neuron_indices
-        self.total_neurons = dff_traces.shape[0]
+        self.total_neurons = n_neurons  # ← Usa la variabile corretta!
         
-        print(f"✅ Dataset ready: {len(self)} windows")
+        print(f"✅ Dataset ready: {len(self.neural_data)} windows")
         print(f"   Shape: {self.neural_data.shape}")
-        print(f"   📊 Created {len(neural_windows)} windows from {dff_traces.shape[1]} timepoints")  # ← NUOVO
-    
+
+
     def _create_temporal_windows(self, neural_data):
         """
-        Crea sliding temporal windows (solo tempo, neuroni fissi).
+        Crea sliding temporal windows SOLO COMPLETE (training mode).
+        SCARTA l'ultima finestra se incompleta.
         
         Args:
             neural_data: (neurons, time)
         
         Returns:
             neural_windows: (n_windows, neurons, window_size)
-            masks: (n_windows, window_size)
         """
         neural_windows = []
-        masks = []
-        
         total_time = neural_data.shape[1]
         
-        # Finestre complete
+        # ✅ SOLO finestre COMPLETE - no padding!
         for start in range(0, total_time - self.window_size + 1, self.stride):
             window = neural_data[:, start:start + self.window_size]
-            neural_windows.append(window)
-            masks.append(np.ones(self.window_size, dtype=bool))
-        
-        # Ultima finestra con padding circolare se necessario
-        last_complete_start = ((total_time - self.window_size) // self.stride) * self.stride
-        next_start = last_complete_start + self.stride
-        
-        if next_start < total_time:
-            remaining_data = neural_data[:, next_start:]
-            missing_timesteps = self.window_size - remaining_data.shape[1]
             
-            padding = neural_data[:, :missing_timesteps]
-            padded_window = np.concatenate([remaining_data, padding], axis=1)
-            
-            mask = np.ones(self.window_size, dtype=bool)
-            mask[-missing_timesteps:] = False
-            
-            neural_windows.append(padded_window)
-            masks.append(mask)
+            # Verifica che sia completa
+            if window.shape[1] == self.window_size:
+                neural_windows.append(window)
         
-        return np.array(neural_windows), np.array(masks)
+        print(f"  📊 Created {len(neural_windows)} COMPLETE windows from {total_time} timepoints")
+        
+        return np.array(neural_windows)
     
+
     def _create_neuron_and_temporal_windows(self, neural_data):
         """
         Crea sliding windows su NEURONI e TEMPO (per test cross-session).
@@ -295,10 +290,19 @@ class SimpleAllenBrainDataset(Dataset):
         return len(self.neural_data)
     
     def __getitem__(self, idx):
-        """Restituisce: (neural_window, mask_time, mask_neurons)"""
-        return (self.neural_data[idx], 
-                self.masks_time[idx], 
-                self.masks_neurons[idx])
+        """
+        Returns:
+        - TRAINING mode: solo neural_data (Tensor)
+        - TEST mode: (neural_data, mask_time, mask_neurons)
+        """
+        if self.use_neuron_sliding:
+            # TEST: con maschere
+            return (self.neural_data[idx], 
+                    self.masks_time[idx], 
+                    self.masks_neurons[idx])
+        else:
+            # TRAINING: solo dati (no maschere)
+            return self.neural_data[idx]
 
 
 def create_multi_session_dataset(session_ids, window_size=60, stride=50, 
@@ -356,7 +360,7 @@ def create_multi_session_dataset(session_ids, window_size=60, stride=50,
     return combined
 
 
-def create_simple_calcium_dataloaders(batch_size=32, test_split=0.2, num_workers=0, 
+def create_simple_calcium_dataloaders(batch_size=64, test_split=0.2, num_workers=0, 
                                      window_size=60, stride=50, min_neurons=30, 
                                      use_multi_session=False, use_neuron_sliding=False):
     """

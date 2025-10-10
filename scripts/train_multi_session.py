@@ -19,6 +19,8 @@ from scipy.stats import pearsonr
 import numpy as np
 import wandb
 import matplotlib.pyplot as plt
+from io import BytesIO
+from PIL import Image
 
 from models.vqvae import CalciumVQVAE
 from datasets.calcium import (
@@ -28,22 +30,23 @@ from datasets.calcium import (
 )
 
 def create_enhanced_calcium_vqvae():
-    """Crea modello per 30 neuroni x 60 timesteps"""
+    """Modello PICCOLO ma funzionante"""
     return CalciumVQVAE(
         num_neurons=30,
-        num_hiddens=512,
+        num_hiddens=512,           
         num_residual_layers=6,
         num_residual_hiddens=256,
         num_embeddings=2048,
         embedding_dim=256,
-        commitment_cost=0.05,
+        commitment_cost=0.0001,    
         dropout_rate=0.0
     )
 
 def train_epoch_enhanced(model, dataloader, optimizer, device):
-    """Training epoch con maschere per neuroni E timesteps."""
+    """Training PURO - solo reconstruction, NO VQ"""
     model.train()
     
+    # Disabilita dropout
     for module in model.modules():
         if isinstance(module, torch.nn.Dropout):
             module.eval()
@@ -53,47 +56,25 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
     total_vq_loss = 0
     total_perplexity = 0
     
-    for batch_data in dataloader:
-        # 🆕 Unpacking con ENTRAMBE le maschere
-        if isinstance(batch_data, (list, tuple)) and len(batch_data) == 3:
-            neural_data, masks_time, masks_neurons = batch_data
-            neural_data = neural_data.to(device)
-            masks_time = masks_time.to(device)      # Shape: (batch, window_size)
-            masks_neurons = masks_neurons.to(device)  # 🆕 Shape: (batch, min_neurons)
-        else:
-            # Fallback per compatibilità
-            neural_data = batch_data[0].to(device)
-            masks_time = torch.ones(neural_data.shape[0], neural_data.shape[2], 
-                                   dtype=torch.bool, device=device)
-            masks_neurons = torch.ones(neural_data.shape[0], neural_data.shape[1],
-                                      dtype=torch.bool, device=device)
+    for neural_data in dataloader:
+        neural_data = neural_data.to(device)
         
         vq_loss, recon, perplexity, _, _ = model(neural_data)
         
-        # 🎭 Calcola loss SOLO su neuroni E timesteps validi
-        # Crea maschera 2D: (batch, neurons, time)
-        mask_2d = masks_neurons.unsqueeze(2) & masks_time.unsqueeze(1)
-        # Shape: (batch, min_neurons, 1) & (batch, 1, window_size)
-        #      → (batch, min_neurons, window_size)
+        # 🔥 SOLO MSE - VQ LOSS COMPLETAMENTE IGNORATO
+        recon_loss = F.mse_loss(recon, neural_data)
         
-        # Calcola MSE solo dove mask_2d=True
-        squared_error = (recon - neural_data) ** 2
-        masked_squared_error = squared_error * mask_2d
-        
-        # Media solo sui valori validi
-        num_valid = mask_2d.sum()
-        recon_loss = masked_squared_error.sum() / num_valid
-        
-        loss = recon_loss + 0.01 * vq_loss
+        # 🔥 LOSS = SOLO RECONSTRUCTION (VQ peso = 0!)
+        loss = recon_loss  # Senza VQ!
         
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         
         total_loss += loss.item()
         total_recon_loss += recon_loss.item()
-        total_vq_loss += vq_loss.item()
+        total_vq_loss += vq_loss.item()  # Solo per logging
         total_perplexity += perplexity.item()
     
     num_batches = len(dataloader)
@@ -105,7 +86,7 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
     }
 
 def evaluate_model_enhanced(model, dataloader, device):
-    """Valutazione con maschere neuroni E tempo."""
+    """Valutazione PULITA - no maschere"""
     model.eval()
     all_original = []
     all_reconstructed = []
@@ -114,25 +95,8 @@ def evaluate_model_enhanced(model, dataloader, device):
     num_batches = 0
     
     with torch.no_grad():
-        for batch_data in dataloader:
-            # Unpacking con ENTRAMBE le maschere
-            if isinstance(batch_data, (list, tuple)) and len(batch_data) == 3:
-                neural_data, masks_time, masks_neurons = batch_data
-                neural_data = neural_data.to(device)
-                masks_time = masks_time.to(device)
-                masks_neurons = masks_neurons.to(device)
-            elif isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
-                neural_data, masks_time = batch_data
-                neural_data = neural_data.to(device)
-                masks_time = masks_time.to(device)
-                masks_neurons = torch.ones((neural_data.shape[0], neural_data.shape[1]),
-                                          dtype=torch.bool, device=device)
-            else:
-                neural_data = batch_data.to(device)
-                masks_time = torch.ones((neural_data.shape[0], neural_data.shape[2]), 
-                                       dtype=torch.bool, device=device)
-                masks_neurons = torch.ones((neural_data.shape[0], neural_data.shape[1]),
-                                          dtype=torch.bool, device=device)
+        for neural_data in dataloader:  # ✅ SEMPLICE! Solo dati
+            neural_data = neural_data.to(device)
             
             vq_loss, recon, perplexity, _, _ = model(neural_data)
             
@@ -145,9 +109,34 @@ def evaluate_model_enhanced(model, dataloader, device):
     original = np.concatenate(all_original, axis=0)
     reconstructed = np.concatenate(all_reconstructed, axis=0)
     
-    # Calcola MSE globale
+    # ✅ CALCOLO MSE GLOBALE
     mse = np.mean((original - reconstructed) ** 2)
     mae = np.mean(np.abs(original - reconstructed))
+    
+    # ✅ R² CALCOLATO CORRETTAMENTE
+    y_true = original.flatten()
+    y_pred = reconstructed.flatten()
+    y_mean = np.mean(y_true)
+    
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - y_mean) ** 2)
+    
+    if ss_tot < 1e-10:
+        r_squared = 0.0
+        print("⚠️ SS_tot troppo piccolo, R² impostato a 0")
+    else:
+        r_squared = 1 - (ss_res / ss_tot)
+    
+    # 🔍 DEBUG R²
+    print(f"\n🔍 DEBUG R² CALCULATION:")
+    print(f"   SS_res (prediction error):     {ss_res:.6f}")
+    print(f"   SS_tot (total variance):       {ss_tot:.6f}")
+    print(f"   Ratio (SS_res/SS_tot):        {ss_res/ss_tot if ss_tot > 0 else 'inf':.6f}")
+    print(f"   R² = 1 - ratio:               {r_squared:.6f}")
+    print(f"   Original mean:                 {y_mean:.6f}")
+    print(f"   Original std:                  {np.std(y_true):.6f}")
+    print(f"   Prediction mean:               {np.mean(y_pred):.6f}")
+    print(f"   Prediction std:                {np.std(y_pred):.6f}")
     
     # Per-neuron correlations
     correlations = []
@@ -164,11 +153,6 @@ def evaluate_model_enhanced(model, dataloader, device):
                 
                 neuron_mse = np.mean((orig_neuron - recon_neuron) ** 2)
                 mse_per_neuron.append(neuron_mse)
-    
-    # R² score
-    ss_res = np.sum((original.flatten() - reconstructed.flatten()) ** 2)
-    ss_tot = np.sum((original.flatten() - np.mean(original.flatten())) ** 2)
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
     
     # Percentuali neuroni perfetti
     perfect_neurons = np.sum(np.array(correlations) > 0.99)
@@ -193,7 +177,8 @@ def evaluate_model_enhanced(model, dataloader, device):
     }
 
 def log_reconstructions_enhanced(original, reconstructed, epoch, num_examples=2):
-    """Enhanced reconstruction logging"""
+    """Enhanced reconstruction logging - SOLO W&B, no file locali"""
+    
     for i in range(min(num_examples, original.shape[0])):
         fig, axes = plt.subplots(2, 2, figsize=(15, 8))
         
@@ -230,67 +215,87 @@ def log_reconstructions_enhanced(original, reconstructed, epoch, num_examples=2)
         axes[1,1].legend()
         
         plt.tight_layout()
-        wandb.log({f"enhanced_reconstructions/epoch_{epoch}_example_{i}": wandb.Image(fig)})
-        plt.close(fig)
+        
+        try:
+            # 🔥 SALVA IN MEMORIA (BytesIO) invece che su disco
+            buf = BytesIO()
+            fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            
+            # Apri da buffer come PIL Image
+            pil_image = Image.open(buf)
+            
+            # Log direttamente su W&B dalla memoria
+            wandb.log({f"enhanced_reconstructions/epoch_{epoch}_example_{i}": 
+                      wandb.Image(pil_image)})
+            
+            # Chiudi buffer
+            buf.close()
+            
+        except Exception as e:
+            print(f"⚠️ W&B logging failed for epoch {epoch} example {i}: {e}")
+            # Non crashare, continua il training
+        
+        finally:
+            plt.close(fig)
 
 def main():
-    """Main training con multi-sessione"""
-    
-    # 🎯 W&B config
     wandb.init(
         project="calcium-vqvae-multi-session",
-        name="10sessions-random30neurons",  # ← Nuovo nome
+        name="10sessions-SMALL-NO-VQ",  # 🔥 Nome chiaro
         config={
-            "model_type": "Enhanced_CalciumVQVAE",
+            "model_type": "Small_CalciumVQVAE_NoVQ",
             "num_sessions_train": len(TRAINING_SESSION_IDS),
             "num_sessions_test": len(TEST_SESSION_IDS),
             "num_neurons": 30,
-            "neuron_selection": "random",  # ← NUOVO
-            "window_size": 60,  # NUOVO
-            "stride": 50,       # NUOVO
+            "neuron_selection": "random",
+            "window_size": 60,
+            "stride": 50,
             "num_hiddens": 512,
             "num_residual_layers": 6,
             "num_residual_hiddens": 256,
             "num_embeddings": 2048,
             "embedding_dim": 256,
-            "commitment_cost": 0.05,
-            "batch_size": 64,
-            "learning_rate": 0.002,
+            "commitment_cost": 0.0001,
+            # Training AGGRESSIVO per reconstruction
+            "batch_size": 64,              
+            "learning_rate": 0.002,       
             "max_epochs": 200,
             "patience": 50,
-            "vq_weight": 0.01,
-            "target_train_loss": 0.01
+            "vq_weight": 0.0,              
+            "target_train_loss": 0.005,  
+            "warmup_epochs": 5
         }
     )
     
-    print("🎯 TRAINING MULTI-SESSION VQ-VAE")
+    print("🎯 TRAINING MULTI-SESSION VQ-VAE - BIG MODEL")
     print("="*70)
     print(f"📊 Training sessions: {len(TRAINING_SESSION_IDS)}")
     print(f"   {TRAINING_SESSION_IDS}")
     print(f"📊 Test sessions (cross-session): {len(TEST_SESSION_IDS)}")
     print(f"   {TEST_SESSION_IDS}")
     print(f"📐 Window: 30 neurons x 60 timesteps, stride=50")
+    print(f"🏗️  Model: {wandb.config.num_hiddens}H, {wandb.config.num_residual_layers}L")
     print("="*70)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     if torch.cuda.is_available():
         torch.backends.cudnn.benchmark = True
-    print(f"Using device: {device}")
+    print(f"💻 Using device: {device}")
     
     try:
-        # Dataset loading con SELEZIONE INTELLIGENTE
-        print("\n📊 Caricamento dataset MULTI-SESSION con selezione casuale...")
+        # Dataset loading
+        print("\n📊 Caricamento dataset MULTI-SESSION...")
         train_loader, test_loader, dataset_info = create_simple_calcium_dataloaders(
             batch_size=wandb.config.batch_size,
             window_size=wandb.config.window_size,
             stride=wandb.config.stride,
             min_neurons=wandb.config.num_neurons,
             use_multi_session=True,
-            use_neuron_sliding=False,  # NO sliding per training
-            
+            use_neuron_sliding=False,
         )
 
-                # 🔍 DEBUG: Verifica cosa è stato caricato
+        # 🔍 DEBUG: Verifica dataset
         print(f"\n🔍 DEBUG DATASET:")
         print(f"   Total samples: {dataset_info['total_samples']}")
         print(f"   Train samples: {dataset_info['train_samples']}")
@@ -299,44 +304,48 @@ def main():
 
         # 🔍 Ispeziona un batch
         sample_batch = next(iter(train_loader))
-        print(f"\n🔍 DEBUG BATCH:")
         if isinstance(sample_batch, (list, tuple)):
+            print(f"\n🔍 DEBUG BATCH:")
             print(f"   Batch type: tuple/list con {len(sample_batch)} elementi")
-            for i, item in enumerate(sample_batch):
-                if isinstance(item, torch.Tensor):
-                    print(f"   Element {i}: shape={item.shape}, dtype={item.dtype}")
         else:
+            print(f"\n🔍 DEBUG BATCH:")
             print(f"   Batch shape: {sample_batch.shape}")
 
         print(f"\n✅ Dataset multi-session caricato:")
         print(f"   Sessioni: {dataset_info['num_sessions']}")
         print(f"   Train samples: {dataset_info['train_samples']}")
         print(f"   Test samples: {dataset_info['test_samples']}")
-        print(f"   🎲 TRAINING: Using RANDOM 30 neurons per session")
                 
-        # 🚀 MODELLO
-        print("\n🏗️ Creazione modello enhanced...")
+        # 🚀 MODELLO BIG
+        print("\n🏗️ Creazione modello BIG...")
         model = create_enhanced_calcium_vqvae().to(device)
         
         num_params = sum(p.numel() for p in model.parameters())
         wandb.log({"model/num_parameters": num_params})
-        print(f"Modello: {num_params:,} parametri")
+        print(f"✅ Modello BIG: {num_params:,} parametri")
         
         # 🎯 OPTIMIZER
         optimizer = torch.optim.AdamW(
             model.parameters(), 
             lr=wandb.config.learning_rate,
             weight_decay=0.0001,
-            betas=(0.9, 0.99)
+            betas=(0.9, 0.999)
         )
         
-        # 🔥 SCHEDULER
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=wandb.config.max_epochs, eta_min=1e-6
-        )
+        # 🔥 WARMUP + COSINE SCHEDULER
+        def lr_lambda(epoch):
+            warmup_epochs = 5
+            if epoch < warmup_epochs:
+                return (epoch + 1) / warmup_epochs
+            else:
+                progress = (epoch - warmup_epochs) / (200 - warmup_epochs)
+                return 0.5 * (1 + np.cos(np.pi * progress))
+        
+        from torch.optim.lr_scheduler import LambdaLR
+        scheduler = LambdaLR(optimizer, lr_lambda)
         
         # Training loop
-        print("\n🚀 Inizio training multi-session...")
+        print("\n🚀 Inizio training multi-session con WARMUP...")
         best_test_mse = float('inf')
         best_train_loss = float('inf')
         patience_counter = 0
@@ -375,16 +384,11 @@ def main():
                 if epoch % 20 == 0:
                     model.eval()
                     with torch.no_grad():
-                        # Gestione corretta del batch con maschere
                         batch_data = next(iter(test_loader))
                         
-                        # CORREGGI QUI: gestisci tutti i casi
-                        if isinstance(batch_data, (list, tuple)) and len(batch_data) == 3:
-                            sample_batch, sample_masks_time, sample_masks_neurons = batch_data
-                            sample_batch = sample_batch.to(device)
-                        elif isinstance(batch_data, (list, tuple)) and len(batch_data) == 2:
-                            sample_batch, sample_masks = batch_data
-                            sample_batch = sample_batch.to(device)
+                        # Gestione batch
+                        if isinstance(batch_data, (list, tuple)):
+                            sample_batch = batch_data[0].to(device)
                         else:
                             sample_batch = batch_data.to(device)
                         
@@ -402,14 +406,12 @@ def main():
                 if current_train_loss < best_train_loss:
                     best_train_loss = current_train_loss
                     patience_counter = 0
-                    
-                    
                 else:
                     patience_counter += 1
                 
                 # STOP se raggiungiamo l'obiettivo
                 if current_train_loss < wandb.config.target_train_loss:
-                    print(f"🎯 OBIETTIVO RAGGIUNTO! Train loss = {current_train_loss:.6f} < {wandb.config.target_train_loss}")
+                    print(f"🎯 OBIETTIVO RAGGIUNTO! Train loss = {current_train_loss:.6f}")
                     break
                 
                 if patience_counter >= wandb.config.patience:
@@ -438,24 +440,25 @@ def main():
             'final/excellent_neurons_pct': final_metrics['test/excellent_neurons_pct'],
         })
 
-        # 💾 SALVA IL MODELLO FINALE
+        # 💾 SALVA IL MODELLO FINALE con config CORRETTI
         print(f"\n💾 Salvando modello finale...")
         os.makedirs('./results', exist_ok=True)
         
         final_checkpoint = {
-            'epoch': epoch if 'epoch' in locals() else 'final',
+            'epoch': epoch if 'epoch' in locals() else wandb.config.max_epochs,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'model_config': {
-                'num_neurons': 30,
-                'window_size': 60,
-                'stride': 50, # da 10 a 50 per compatibilità
-                'num_hiddens': 512,
-                'num_residual_layers': 6,
-                'num_residual_hiddens': 256,
-                'num_embeddings': 2048,
-                'embedding_dim': 256,
-                'commitment_cost': 0.05,
+                # 🔥 CONFIG CORRETTI per modello BIG
+                'num_neurons': wandb.config.num_neurons,
+                'window_size': wandb.config.window_size,
+                'stride': wandb.config.stride,
+                'num_hiddens': wandb.config.num_hiddens,
+                'num_residual_layers': wandb.config.num_residual_layers,
+                'num_residual_hiddens': wandb.config.num_residual_hiddens,
+                'num_embeddings': wandb.config.num_embeddings,
+                'embedding_dim': wandb.config.embedding_dim,
+                'commitment_cost': wandb.config.commitment_cost,
                 'dropout_rate': 0.0
             },
             'dataset_info': dataset_info,
@@ -466,15 +469,15 @@ def main():
             'final_r_squared': final_metrics['test/r_squared']
         }
         
-        torch.save(final_checkpoint, './results/best_multi_session_30x60.pth')
-        print(f"✅ Modello salvato come ./results/best_multi_session_30x60.pth")
+        torch.save(final_checkpoint, './results/best_multi_session_BIG_30x60.pth')
+        print(f"✅ Modello salvato come ./results/best_multi_session_BIG_30x60.pth")
         
         # Salva anche su W&B
         try:
-            wandb.save('./results/best_multi_session_30x60.pth')
+            wandb.save('./results/best_multi_session_BIG_30x60.pth')
             print(f"📤 Modello caricato anche su W&B")
-        except:
-            print(f"⚠️ Impossibile caricare su W&B, ma file locale salvato")
+        except Exception as e:
+            print(f"⚠️ Impossibile caricare su W&B: {e}")
         
     except Exception as e:
         print(f"❌ Errore: {e}")
@@ -483,6 +486,7 @@ def main():
         
     finally:
         wandb.finish()
+
 
 if __name__ == "__main__":
     main()
