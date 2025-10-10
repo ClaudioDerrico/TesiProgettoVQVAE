@@ -24,6 +24,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 import wandb
 from datetime import datetime
+from datasets.calcium import UnifiedMultiSessionDataset
 
 from models.vqvae import CalciumVQVAE
 from datasets.calcium import SimpleAllenBrainDataset, TRAINING_SESSION_IDS, TEST_SESSION_IDS
@@ -106,13 +107,12 @@ def evaluate_session(model, session_id, device, window_size, stride, max_samples
     
     try:
         # Carica dataset con SLIDING sui neuroni
-        dataset = SimpleAllenBrainDataset(
-            window_size=window_size,
-            stride=stride,
-            min_neurons=30,
-            session_id=session_id,
-            neuron_stride=30,
-            use_neuron_sliding=True  # ← TRUE per TEST CROSS-SESSION
+        dataset = UnifiedMultiSessionDataset(
+        session_ids=[session_id],  # ✅ Singola sessione
+        window_size=window_size,
+        stride=stride,
+        min_neurons=30,
+        mode='test'  # ✅ Sliding su neuroni
         )
         
         print(f"   🔵 TEST MODE: Using neuron sliding window")

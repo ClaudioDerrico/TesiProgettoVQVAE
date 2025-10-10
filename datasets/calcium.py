@@ -443,3 +443,267 @@ def create_simple_calcium_dataloaders(batch_size=64, test_split=0.2, num_workers
     print(f"   Train: {train_size}, Test: {test_size}")
     
     return train_loader, test_loader, dataset_info
+
+# ============================================================================
+# AGGIUNGI QUESTO ALLA FINE DI datasets/calcium.py
+# ============================================================================
+
+class UnifiedMultiSessionDataset(Dataset):
+    """
+    Dataset unificato che carica TUTTE le sessioni una volta sola.
+    Più efficiente di ConcatDataset.
+    """
+    
+    def __init__(
+        self, 
+        session_ids,
+        window_size=60,
+        stride=50,
+        min_neurons=30,
+        mode='train'
+    ):
+        self.session_ids = session_ids
+        self.window_size = window_size
+        self.stride = stride
+        self.min_neurons = min_neurons
+        self.mode = mode
+        
+        # Conserva i DFF di tutte le sessioni
+        self.session_data = {}
+        
+        # Lista di finestre: (session_id, neuron_indices, t_start, t_end)
+        self.windows = []
+        
+        self._load_all_sessions()
+        self._generate_all_windows()
+        
+        print(f"\n✅ Dataset Unificato:")
+        print(f"   Sessioni: {len(self.session_ids)}")
+        print(f"   Finestre totali: {len(self.windows)}")
+    
+    def _load_all_sessions(self):
+        """Carica i DFF di TUTTE le sessioni"""
+        print(f"\n📊 Caricamento {len(self.session_ids)} sessioni...")
+        
+        for i, session_id in enumerate(self.session_ids, 1):
+            print(f"   [{i}/{len(self.session_ids)}] Sessione {session_id}...", end=" ")
+            
+            try:
+                result = extract_neural_data_from_hdf5(session_id)
+                
+                if result and result['success']:
+                    dff_data = result['dff_data']
+                    
+                    # Assicura (neurons, time)
+                    if dff_data.shape[0] > dff_data.shape[1]:
+                        dff_data = dff_data.T
+                    
+                    self.session_data[session_id] = dff_data.astype(np.float32)
+                    print(f"✓ {dff_data.shape}")
+                else:
+                    print(f"✗ Failed")
+                    
+            except Exception as e:
+                print(f"✗ Error: {e}")
+    
+    def _generate_all_windows(self):
+        """Pre-calcola TUTTE le finestre"""
+        print(f"\n🔍 Generazione finestre ({self.mode} mode)...")
+        
+        for session_id, dff_data in self.session_data.items():
+            total_neurons, total_time = dff_data.shape
+            
+            if self.mode == 'train':
+                # TRAIN: Random 30 neuroni
+                selected = select_random_neurons(dff_data, self.min_neurons)
+                
+                for t_start in range(0, total_time - self.window_size + 1, self.stride):
+                    t_end = t_start + self.window_size
+                    self.windows.append((session_id, selected, t_start, t_end))
+            
+            else:  # TEST
+                # TEST: Sliding su neuroni
+                neuron_stride = 30
+                
+                for n_start in range(0, total_neurons, neuron_stride):
+                    n_end = min(n_start + self.min_neurons, total_neurons)
+                    
+                    # Padding circolare se serve
+                    if n_end - n_start < self.min_neurons:
+                        neuron_indices = list(range(n_start, total_neurons)) + \
+                                       list(range(0, self.min_neurons - (total_neurons - n_start)))
+                    else:
+                        neuron_indices = list(range(n_start, n_end))
+                    
+                    for t_start in range(0, total_time - self.window_size + 1, self.stride):
+                        t_end = t_start + self.window_size
+                        self.windows.append((session_id, neuron_indices, t_start, t_end))
+            
+            n_windows = len([w for w in self.windows if w[0] == session_id])
+            print(f"   Session {session_id}: {n_windows} finestre")
+    
+    def __len__(self):
+        return len(self.windows)
+    
+    def __getitem__(self, idx):
+        """Estrae finestra idx"""
+        session_id, neuron_indices, t_start, t_end = self.windows[idx]
+        dff = self.session_data[session_id]
+        window = dff[neuron_indices, t_start:t_end]
+        return torch.FloatTensor(window)
+
+
+def create_unified_dataloaders(
+    train_session_ids=None,
+    test_session_ids=None,
+    batch_size=32,
+    test_split=0.2,  # ← NUOVO: per split interno
+    window_size=60,
+    stride=50,
+    min_neurons=30,
+    num_workers=0,
+    use_cross_session_test=False  # ← NUOVO: abilita test cross-session
+):
+    """
+    Factory function per creare dataloaders con dataset unificato.
+    
+    MODALITÀ:
+    1. use_cross_session_test=False (DEFAULT per training):
+       - Carica solo train_session_ids
+       - Fa split interno train/test
+       - Test set = subset dello stesso training set
+    
+    2. use_cross_session_test=True (per evaluation cross-session):
+       - Carica train_session_ids E test_session_ids
+       - Test set = sessioni completamente diverse
+    
+    Args:
+        train_session_ids: IDs sessioni per training
+        test_session_ids: IDs sessioni per test cross-session (opzionale)
+        batch_size: Batch size
+        test_split: Frazione per test set (solo se use_cross_session_test=False)
+        window_size: Dimensione finestra temporale
+        stride: Stride per sliding window
+        min_neurons: Numero neuroni per finestra
+        num_workers: Workers per DataLoader
+        use_cross_session_test: Se True, usa test_session_ids per test set
+    
+    Returns:
+        train_loader, test_loader, dataset_info
+    """
+    from torch.utils.data import DataLoader, random_split
+    
+    if train_session_ids is None:
+        train_session_ids = TRAINING_SESSION_IDS
+    
+    print("🧠 Creazione dataloaders unificati...")
+    
+    # ========================================================================
+    # MODALITÀ 1: TRAINING NORMALE (split interno)
+    # ========================================================================
+    if not use_cross_session_test:
+        print("\n📊 Modalità: TRAINING con split interno train/test")
+        print(f"   Split: {int((1-test_split)*100)}% train, {int(test_split*100)}% test")
+        
+        # Carica SOLO le sessioni di training
+        full_dataset = UnifiedMultiSessionDataset(
+            session_ids=train_session_ids,
+            window_size=window_size,
+            stride=stride,
+            min_neurons=min_neurons,
+            mode='train'  # Tutti in train mode
+        )
+        
+        # Split interno
+        total_size = len(full_dataset)
+        test_size = int(total_size * test_split)
+        train_size = total_size - test_size
+        
+        train_dataset, test_dataset = random_split(
+            full_dataset, 
+            [train_size, test_size],
+            generator=torch.Generator().manual_seed(42)
+        )
+        
+        print(f"\n✅ Split completato:")
+        print(f"   Train: {train_size} samples")
+        print(f"   Test:  {test_size} samples (stesso dataset)")
+    
+    # ========================================================================
+    # MODALITÀ 2: CROSS-SESSION TEST
+    # ========================================================================
+    else:
+        print("\n📊 Modalità: CROSS-SESSION TEST")
+        print(f"   Train: {len(train_session_ids)} sessioni")
+        print(f"   Test:  {len(test_session_ids)} sessioni (completamente diverse)")
+        
+        if test_session_ids is None:
+            test_session_ids = TEST_SESSION_IDS
+        
+        # Dataset TRAIN
+        print("\n🔴 TRAIN Dataset:")
+        train_dataset = UnifiedMultiSessionDataset(
+            session_ids=train_session_ids,
+            window_size=window_size,
+            stride=stride,
+            min_neurons=min_neurons,
+            mode='train'
+        )
+        
+        # Dataset TEST (sessioni diverse!)
+        print("\n🔵 TEST Dataset:")
+        test_dataset = UnifiedMultiSessionDataset(
+            session_ids=test_session_ids,
+            window_size=window_size,
+            stride=stride,
+            min_neurons=min_neurons,
+            mode='test'  # Test mode con sliding su neuroni
+        )
+    
+    # ========================================================================
+    # CREA DATALOADERS
+    # ========================================================================
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True
+    )
+    
+    # ========================================================================
+    # INFO
+    # ========================================================================
+    dataset_info = {
+        'total_samples': len(train_dataset) + len(test_dataset),
+        'train_samples': len(train_dataset),
+        'test_samples': len(test_dataset),
+        'neural_shape': (min_neurons, window_size),
+        'window_size': window_size,
+        'stride': stride,
+        'min_neurons': min_neurons,
+        'use_cross_session_test': use_cross_session_test,
+        'num_sessions_train': len(train_session_ids),
+    }
+    
+    if use_cross_session_test:
+        dataset_info['num_sessions_test'] = len(test_session_ids)
+    
+    print(f"\n✅ Dataloaders creati:")
+    print(f"   Train: {len(train_dataset)} samples")
+    print(f"   Test:  {len(test_dataset)} samples")
+    
+    if use_cross_session_test:
+        print(f"   Test mode: CROSS-SESSION (diverse sessioni)")
+    else:
+        print(f"   Test mode: SPLIT INTERNO (stesse sessioni)")
+    
+    return train_loader, test_loader, dataset_info

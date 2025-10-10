@@ -24,7 +24,7 @@ from PIL import Image
 
 from models.vqvae import CalciumVQVAE
 from datasets.calcium import (
-    create_simple_calcium_dataloaders,
+    create_unified_dataloaders,
     TRAINING_SESSION_IDS,
     TEST_SESSION_IDS
 )
@@ -258,8 +258,8 @@ def main():
             "embedding_dim": 256,
             "commitment_cost": 0.0001,
             # Training AGGRESSIVO per reconstruction
-            "batch_size": 64,              
-            "learning_rate": 0.002,       
+            "batch_size": 128,              
+            "learning_rate": 0.003,       
             "max_epochs": 200,
             "patience": 50,
             "vq_weight": 0.0,              
@@ -272,8 +272,6 @@ def main():
     print("="*70)
     print(f"📊 Training sessions: {len(TRAINING_SESSION_IDS)}")
     print(f"   {TRAINING_SESSION_IDS}")
-    print(f"📊 Test sessions (cross-session): {len(TEST_SESSION_IDS)}")
-    print(f"   {TEST_SESSION_IDS}")
     print(f"📐 Window: 30 neurons x 60 timesteps, stride=50")
     print(f"🏗️  Model: {wandb.config.num_hiddens}H, {wandb.config.num_residual_layers}L")
     print("="*70)
@@ -285,14 +283,16 @@ def main():
     
     try:
         # Dataset loading
-        print("\n📊 Caricamento dataset MULTI-SESSION...")
-        train_loader, test_loader, dataset_info = create_simple_calcium_dataloaders(
+        # NUOVO (solo training sessions con split interno):
+        train_loader, test_loader, dataset_info = create_unified_dataloaders(
+            train_session_ids=TRAINING_SESSION_IDS,  # Solo queste
             batch_size=wandb.config.batch_size,
+            test_split=0.2,  # ✅ 80% train, 20% test (stesso dataset)
             window_size=wandb.config.window_size,
             stride=wandb.config.stride,
             min_neurons=wandb.config.num_neurons,
-            use_multi_session=True,
-            use_neuron_sliding=False,
+            num_workers=0,
+            use_cross_session_test=False  # ✅ Split interno
         )
 
         # 🔍 DEBUG: Verifica dataset
@@ -300,7 +300,7 @@ def main():
         print(f"   Total samples: {dataset_info['total_samples']}")
         print(f"   Train samples: {dataset_info['train_samples']}")
         print(f"   Test samples: {dataset_info['test_samples']}")
-        print(f"   Num sessions: {dataset_info['num_sessions']}")
+        print(f"   Num sessions (train): {dataset_info['num_sessions_train']}")
 
         # 🔍 Ispeziona un batch
         sample_batch = next(iter(train_loader))
@@ -311,10 +311,12 @@ def main():
             print(f"\n🔍 DEBUG BATCH:")
             print(f"   Batch shape: {sample_batch.shape}")
 
-        print(f"\n✅ Dataset multi-session caricato:")
-        print(f"   Sessioni: {dataset_info['num_sessions']}")
+        # SOSTITUISCI CON:
+        print(f"✅ Dataset multi-session caricato:")
+        print(f"   Sessioni training: {dataset_info['num_sessions_train']}")  # ✅ CORRETTO
         print(f"   Train samples: {dataset_info['train_samples']}")
         print(f"   Test samples: {dataset_info['test_samples']}")
+        print(f"   Shape per window: ({dataset_info['min_neurons']} neurons, {dataset_info['window_size']} timesteps)")
                 
         # 🚀 MODELLO BIG
         print("\n🏗️ Creazione modello BIG...")
