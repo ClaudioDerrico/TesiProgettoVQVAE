@@ -29,6 +29,17 @@ TEST_SESSION_IDS = [
     501559087,  # VISp
     501498760,  # VISp
     501836392,  # VISp
+
+     # 3 VISl (Lateral Visual Area)
+    501474098,  # VISl
+    663488086,  # VISl
+    647593956,  # VISl
+
+    # 3 VISam (Anteromedial Visual Area)
+    627823723,  # VISam
+    569494121,  # VISam
+    566523247,  # VISam
+
 ]
 
 
@@ -444,14 +455,11 @@ def create_simple_calcium_dataloaders(batch_size=64, test_split=0.2, num_workers
     
     return train_loader, test_loader, dataset_info
 
-# ============================================================================
-# AGGIUNGI QUESTO ALLA FINE DI datasets/calcium.py
-# ============================================================================
+
 
 class UnifiedMultiSessionDataset(Dataset):
     """
     Dataset unificato che carica TUTTE le sessioni una volta sola.
-    Più efficiente di ConcatDataset.
     """
     
     def __init__(
@@ -497,15 +505,25 @@ class UnifiedMultiSessionDataset(Dataset):
                     # Assicura (neurons, time)
                     if dff_data.shape[0] > dff_data.shape[1]:
                         dff_data = dff_data.T
+
+                    print(f"Clipping...", end=" ")
+                    dff_data = np.clip(dff_data, -2, 5)
                     
+                    # ✅ POI normalizza (se vuoi)
+                    # global_mean = np.mean(dff_data)
+                    # global_std = np.std(dff_data)
+                    # if global_std > 1e-8:
+                    #     dff_data = (dff_data - global_mean) / global_std
+                
                     self.session_data[session_id] = dff_data.astype(np.float32)
+                
                     print(f"✓ {dff_data.shape}")
                 else:
                     print(f"✗ Failed")
-                    
+                
             except Exception as e:
                 print(f"✗ Error: {e}")
-    
+        
     def _generate_all_windows(self):
         """Pre-calcola TUTTE le finestre"""
         print(f"\n🔍 Generazione finestre ({self.mode} mode)...")

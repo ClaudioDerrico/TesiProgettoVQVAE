@@ -61,12 +61,22 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
         
         vq_loss, recon, perplexity, _, _ = model(neural_data)
         
-        # 🔥 SOLO MSE - VQ LOSS COMPLETAMENTE IGNORATO
-        recon_loss = F.mse_loss(recon, neural_data)
+        # ✅ HUBER LOSS manuale (smooth L1)
+        diff = torch.abs(recon - neural_data)
+        delta = 1.0
+        recon_loss = torch.where(
+            diff < delta,
+            0.5 * diff ** 2,
+            delta * (diff - 0.5 * delta)
+        ).mean()
         
-        # 🔥 LOSS = SOLO RECONSTRUCTION (VQ peso = 0!)
-        loss = recon_loss  # Senza VQ!
+        # ✅ VARIANCE LOSS (evita collasso)
+        var_original = torch.var(neural_data)
+        var_recon = torch.var(recon)
+        var_loss = (var_original - var_recon) ** 2
         
+        # 🔥 LOSS COMBINATA
+        loss = recon_loss + 1.0 * var_loss  # Era 0.5, ora 1.0
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -74,7 +84,7 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
         
         total_loss += loss.item()
         total_recon_loss += recon_loss.item()
-        total_vq_loss += vq_loss.item()  # Solo per logging
+        total_vq_loss += vq_loss.item()
         total_perplexity += perplexity.item()
     
     num_batches = len(dataloader)
@@ -126,17 +136,18 @@ def evaluate_model_enhanced(model, dataloader, device):
         print("⚠️ SS_tot troppo piccolo, R² impostato a 0")
     else:
         r_squared = 1 - (ss_res / ss_tot)
+
+        # In evaluate_model_enhanced, dopo il calcolo di R²:
+        print(f"\n🔍 DEBUG Varianza:")
+        print(f"   Original mean: {y_mean:.6f}")
+        print(f"   Original std: {np.std(y_true):.6f}")
+        print(f"   Original min/max: [{y_true.min():.3f}, {y_true.max():.3f}]")
+        print(f"   Prediction mean: {np.mean(y_pred):.6f}")
+        print(f"   Prediction std: {np.std(y_pred):.6f}")
+        print(f"   Prediction min/max: [{y_pred.min():.3f}, {y_pred.max():.3f}]")
+        print(f"   SS_tot: {ss_tot:.6f}")
+        print(f"   SS_res: {ss_res:.6f}")
     
-    # 🔍 DEBUG R²
-    print(f"\n🔍 DEBUG R² CALCULATION:")
-    print(f"   SS_res (prediction error):     {ss_res:.6f}")
-    print(f"   SS_tot (total variance):       {ss_tot:.6f}")
-    print(f"   Ratio (SS_res/SS_tot):        {ss_res/ss_tot if ss_tot > 0 else 'inf':.6f}")
-    print(f"   R² = 1 - ratio:               {r_squared:.6f}")
-    print(f"   Original mean:                 {y_mean:.6f}")
-    print(f"   Original std:                  {np.std(y_true):.6f}")
-    print(f"   Prediction mean:               {np.mean(y_pred):.6f}")
-    print(f"   Prediction std:                {np.std(y_pred):.6f}")
     
     # Per-neuron correlations
     correlations = []
@@ -259,12 +270,12 @@ def main():
             "commitment_cost": 0.0001,
             # Training AGGRESSIVO per reconstruction
             "batch_size": 128,              
-            "learning_rate": 0.003,       
-            "max_epochs": 200,
+            "learning_rate": 0.0003,       
+            "max_epochs": 100,
             "patience": 50,
             "vq_weight": 0.0,              
             "target_train_loss": 0.005,  
-            "warmup_epochs": 5
+            "warmup_epochs": 0
         }
     )
     
@@ -333,18 +344,11 @@ def main():
             weight_decay=0.0001,
             betas=(0.9, 0.999)
         )
-        
-        # 🔥 WARMUP + COSINE SCHEDULER
-        def lr_lambda(epoch):
-            warmup_epochs = 5
-            if epoch < warmup_epochs:
-                return (epoch + 1) / warmup_epochs
-            else:
-                progress = (epoch - warmup_epochs) / (200 - warmup_epochs)
-                return 0.5 * (1 + np.cos(np.pi * progress))
-        
-        from torch.optim.lr_scheduler import LambdaLR
-        scheduler = LambdaLR(optimizer, lr_lambda)
+    
+
+        scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=50, gamma=0.5
+        )
         
         # Training loop
         print("\n🚀 Inizio training multi-session con WARMUP...")
@@ -411,11 +415,7 @@ def main():
                 else:
                     patience_counter += 1
                 
-                # STOP se raggiungiamo l'obiettivo
-                if current_train_loss < wandb.config.target_train_loss:
-                    print(f"🎯 OBIETTIVO RAGGIUNTO! Train loss = {current_train_loss:.6f}")
-                    break
-                
+               
                 if patience_counter >= wandb.config.patience:
                     print(f"Early stopping at epoch {epoch}")
                     break

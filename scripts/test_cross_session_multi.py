@@ -36,7 +36,7 @@ from datasets.calcium import SimpleAllenBrainDataset, TRAINING_SESSION_IDS, TEST
 WANDB_PROJECT = "calcium-vqvae-cross-session-multi"
 WANDB_RUN_NAME = f"test-3sessions-{datetime.now().strftime('%m%d-%H%M')}"
 
-CHECKPOINT_PATH = "results/best_multi_session_30x60.pth"
+CHECKPOINT_PATH = "results/best_multi_session_BIG_30x60.pth"
 SAVE_DIR = "cross_session_multi_analysis"
 
 MODEL_CONFIG = {
@@ -47,7 +47,8 @@ MODEL_CONFIG = {
     'num_embeddings': 2048,
     'embedding_dim': 256,
     'commitment_cost': 0.05,
-    'dropout_rate': 0.0
+    'dropout_rate': 0.0,
+    'use_quantizer': False,
 }
 
 BATCH_SIZE = 32
@@ -74,7 +75,8 @@ def load_trained_model(checkpoint_path, config, device):
         num_embeddings=config['num_embeddings'],
         embedding_dim=config['embedding_dim'],
         commitment_cost=config['commitment_cost'],
-        dropout_rate=config.get('dropout_rate', 0.0)
+        dropout_rate=config.get('dropout_rate', 0.0),
+        use_quantizer=config.get('use_quantizer', False)
     )
     
     checkpoint = torch.load(checkpoint_path, map_location=device)

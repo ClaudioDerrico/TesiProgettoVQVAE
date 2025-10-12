@@ -86,9 +86,11 @@ class CalciumVQVAE(nn.Module):
     """
     
     def __init__(self, num_neurons=30, num_hiddens=128, num_residual_layers=2, 
-                 num_residual_hiddens=32, num_embeddings=512, embedding_dim=64, 
-                 commitment_cost=0.25, dropout_rate=0.3):
+             num_residual_hiddens=32, num_embeddings=512, embedding_dim=64, 
+             commitment_cost=0.25, dropout_rate=0.3, use_quantizer=True):  # ← AGGIUNGI
         super(CalciumVQVAE, self).__init__()
+        
+        self.use_quantizer = use_quantizer  # ← AGGIUNGI QUESTA RIGA
         
         # Encoder
         self.encoder = CalciumEncoder(
@@ -129,8 +131,15 @@ class CalciumVQVAE(nn.Module):
         z = self.encoder(x)  # (B, num_hiddens, 15)
         z = self.pre_quantization_conv(z)  # (B, embedding_dim, 15)
         
-        # Quantize  
-        vq_loss, quantized, perplexity, encodings, encoding_indices = self.vector_quantization(z)
+        # Quantize (if enabled)
+        #vq_loss, quantized, perplexity, encodings, encoding_indices = self.vector_quantization(z)
+        
+                # ✅ BYPASS quantizer per test
+        quantized = z  # Usa direttamente l'output dell'encoder
+        vq_loss = torch.tensor(0.0, device=z.device)
+        perplexity = torch.tensor(512.0, device=z.device)  # Valore dummy
+        encodings = None
+        encoding_indices = None
         
         # Decode
         x_recon = self.decoder(quantized)  # (B, 30, ~60)
