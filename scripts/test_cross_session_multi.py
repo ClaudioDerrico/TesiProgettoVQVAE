@@ -460,7 +460,7 @@ def main():
     
     # Test su 3 sessioni nuove
     print("\n" + "="*70)
-    print("🔬 CROSS-SESSION TEST: 3 Sessioni Mai Viste")
+    print("🔬 CROSS-SESSION TEST: Sessioni Mai Viste")
     print("="*70)
     
     max_samples = None if USE_FULL_DATASET else MAX_SAMPLES
