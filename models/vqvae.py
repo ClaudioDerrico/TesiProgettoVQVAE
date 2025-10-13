@@ -10,10 +10,6 @@ class CalciumDecoder(nn.Module):
     """
     1D Decoder optimized for calcium imaging data.
     Symmetric to CalciumEncoder with transpose convolutions.
-    
-    SUPPORTA 60 TIMESTEPS: 
-    - Input: (B, embedding_dim, 15) [dopo encoder con stride=2,2]
-    - Output: (B, 30, 60) [neuroni, timesteps originali]
     """
 
     def __init__(self, embedding_dim, num_hiddens, num_residual_layers, 
@@ -29,14 +25,12 @@ class CalciumDecoder(nn.Module):
         ])
         
         # Progressive upsampling
-        # 15 -> 30 (stride=2, output_padding=0)
         self._conv_transpose_1 = nn.ConvTranspose1d(
             in_channels=embedding_dim,
             out_channels=num_hiddens,
             kernel_size=3, stride=2, padding=1, output_padding=1
         )
         
-        # 30 -> 60 (stride=2, output_padding=0)
         self._conv_transpose_2 = nn.ConvTranspose1d(
             in_channels=num_hiddens,
             out_channels=num_hiddens//2,
@@ -53,11 +47,9 @@ class CalciumDecoder(nn.Module):
         self._dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
-        # Apply residual blocks
         for block in self._residual_stack:
             x = block(x)
         
-        # Upsample
         x = F.relu(self._conv_transpose_1(x))
         x = self._dropout(x)
         x = F.relu(self._conv_transpose_2(x))
@@ -69,26 +61,14 @@ class CalciumDecoder(nn.Module):
 
 class CalciumVQVAE(nn.Module):
     """
-    Simplified VQ-VAE optimized for calcium imaging data.
+    VQ-VAE optimized for calcium imaging data.
     
-    SUPPORTA 60 TIMESTEPS:
-    - Input: (B, 30, 60) [batch, neurons, timesteps]
-    - Encoder: 60 -> 30 -> 15 (con stride=2)
-    - Quantized: (B, embedding_dim, 15)
-    - Decoder: 15 -> 30 -> 60
-    - Output: (B, 30, 60)
-    
-    Features:
-    - 1D convolutions for temporal neural data
-    - ONLY Standard VectorQuantizer
-    - NO behavior prediction
-    - Focus on reconstruction quality
-
+    FIXED: Properly handles quantizer enable/disable with consistent returns
     """
     
     def __init__(self, num_neurons=30, num_hiddens=128, num_residual_layers=2, 
-             num_residual_hiddens=32, num_embeddings=512, embedding_dim=64, 
-             commitment_cost=0.25, dropout_rate=0.3, use_quantizer=True):
+                 num_residual_hiddens=32, num_embeddings=512, embedding_dim=64, 
+                 commitment_cost=0.25, dropout_rate=0.3, use_quantizer=True):
         super(CalciumVQVAE, self).__init__()
         
         self.use_quantizer = use_quantizer
@@ -98,7 +78,8 @@ class CalciumVQVAE(nn.Module):
             num_neurons,           
             num_hiddens,           
             num_residual_layers,   
-            num_residual_hiddens,  
+            num_residual_hiddens,
+            dropout_rate=dropout_rate
         )
         
         # Pre-quantization convolution
@@ -109,7 +90,7 @@ class CalciumVQVAE(nn.Module):
             stride=1
         )
         
-        # 🔥 USA ImprovedVectorQuantizer con EMA
+        # 🔥 USE ImprovedVectorQuantizer
         from models.quantizer import ImprovedVectorQuantizer
         
         self.vector_quantization = ImprovedVectorQuantizer(
@@ -136,28 +117,28 @@ class CalciumVQVAE(nn.Module):
         
         Args:
             x: Input tensor (B, num_neurons, time_steps)
-            Expected: (B, 30, 60)
             
         Returns:
             tuple: (vq_loss, x_recon, perplexity, quantized, encodings)
+            ✅ ALWAYS returns 5 values
         """
         # Encode
         z = self.encoder(x)
         z = self.pre_quantization_conv(z)
         
-        # 🔥 LAYERNORM + CLIPPING
+        # 🔥 CLIPPING PIÙ PERMISSIVO
         z = F.layer_norm(z, [z.size(1), z.size(2)])
-        z = torch.clamp(z, min=-5.0, max=5.0)
+        z = torch.clamp(z, min=-10.0, max=10.0)  # ✅ Era -3,+3, troppo stretto!
         
         if self.use_quantizer:
-            # 🔥 ImprovedVectorQuantizer ritorna 4 valori (non 5!)
-            vq_loss, quantized, perplexity, encodings = \
+            # ✅ ImprovedVectorQuantizer ritorna 5 valori!
+            vq_loss, quantized, perplexity, encodings, encoding_indices = \
                 self.vector_quantization(z)
-            encoding_indices = None  # Non fornito da ImprovedVQ
         else:
+            # No quantization - pass through
             quantized = z
             vq_loss = torch.tensor(0.0, device=z.device)
-            perplexity = torch.tensor(512.0, device=z.device)
+            perplexity = torch.tensor(float(self.vector_quantization.n_e), device=z.device)
             encodings = None
             encoding_indices = None
         
@@ -170,14 +151,19 @@ class CalciumVQVAE(nn.Module):
                 x_recon, size=x.shape[2], mode='linear', align_corners=False
             )
 
+        # ✅ ALWAYS return 5 values
         return vq_loss, x_recon, perplexity, quantized, encodings
-    
     
     def encode(self, x):
         """Encode input to quantized representation."""
         z = self.encoder(x)
         z = self.pre_quantization_conv(z)
-        _, quantized, _, _, _ = self.vector_quantization(z)
+        
+        if self.use_quantizer:
+            _, quantized, _, _, _ = self.vector_quantization(z)
+        else:
+            quantized = z
+            
         return quantized
     
     def decode(self, quantized):
@@ -193,15 +179,7 @@ class CalciumVQVAE(nn.Module):
 
 
 def create_simple_calcium_vqvae(config=None):
-    """
-    Factory function to create CalciumVQVAE.
-    
-    Args:
-        config: dict with model parameters
-        
-    Returns:
-        CalciumVQVAE model
-    """
+    """Factory function to create CalciumVQVAE."""
     default_config = {
         'num_neurons': 30,
         'num_hiddens': 128,
@@ -213,7 +191,6 @@ def create_simple_calcium_vqvae(config=None):
         'dropout_rate': 0.3
     }
     
-    # Update with user config
     if config:
         default_config.update(config)
     
