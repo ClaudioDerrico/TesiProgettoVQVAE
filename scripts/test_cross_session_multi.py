@@ -36,7 +36,7 @@ from datasets.calcium import SimpleAllenBrainDataset, TRAINING_SESSION_IDS, TEST
 WANDB_PROJECT = "calcium-vqvae-cross-session-multi"
 WANDB_RUN_NAME = f"test-3sessions-{datetime.now().strftime('%m%d-%H%M')}"
 
-CHECKPOINT_PATH = "results/best_multi_session_BIG_30x60.pth"
+CHECKPOINT_PATH = "results/best_multi_session_FIXED_VQ.pth"  # ✅ Modello multi-session
 SAVE_DIR = "cross_session_multi_analysis"
 
 MODEL_CONFIG = {
