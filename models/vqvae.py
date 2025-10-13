@@ -83,37 +83,51 @@ class CalciumVQVAE(nn.Module):
     - ONLY Standard VectorQuantizer
     - NO behavior prediction
     - Focus on reconstruction quality
+
     """
     
     def __init__(self, num_neurons=30, num_hiddens=128, num_residual_layers=2, 
              num_residual_hiddens=32, num_embeddings=512, embedding_dim=64, 
-             commitment_cost=0.25, dropout_rate=0.3, use_quantizer=True):  # ← AGGIUNGI
+             commitment_cost=0.25, dropout_rate=0.3, use_quantizer=True):
         super(CalciumVQVAE, self).__init__()
         
-        self.use_quantizer = use_quantizer  # ← AGGIUNGI QUESTA RIGA
+        self.use_quantizer = use_quantizer
         
         # Encoder
         self.encoder = CalciumEncoder(
-            num_neurons, num_hiddens, num_residual_layers, 
-            num_residual_hiddens, dropout_rate
+            num_neurons,           
+            num_hiddens,           
+            num_residual_layers,   
+            num_residual_hiddens,  
         )
         
         # Pre-quantization convolution
         self.pre_quantization_conv = nn.Conv1d(
             in_channels=num_hiddens, 
             out_channels=embedding_dim,
-            kernel_size=1, stride=1
+            kernel_size=1, 
+            stride=1
         )
         
-        # ✅ SOLO Standard Vector Quantizer
-        self.vector_quantization = VectorQuantizer(
-            num_embeddings, embedding_dim, commitment_cost
+        # 🔥 USA ImprovedVectorQuantizer con EMA
+        from models.quantizer import ImprovedVectorQuantizer
+        
+        self.vector_quantization = ImprovedVectorQuantizer(
+            num_embeddings, 
+            embedding_dim, 
+            commitment_cost,
+            decay=0.99,
+            eps=1e-5
         )
         
         # Decoder
         self.decoder = CalciumDecoder(
-            embedding_dim, num_hiddens, num_residual_layers,
-            num_residual_hiddens, num_neurons, dropout_rate
+            embedding_dim,         
+            num_hiddens,           
+            num_residual_layers,   
+            num_residual_hiddens,  
+            num_neurons,           
+            dropout_rate           
         )
 
     def forward(self, x):
@@ -128,30 +142,36 @@ class CalciumVQVAE(nn.Module):
             tuple: (vq_loss, x_recon, perplexity, quantized, encodings)
         """
         # Encode
-        z = self.encoder(x)  # (B, num_hiddens, 15)
-        z = self.pre_quantization_conv(z)  # (B, embedding_dim, 15)
+        z = self.encoder(x)
+        z = self.pre_quantization_conv(z)
         
-        # Quantize (if enabled)
-        #vq_loss, quantized, perplexity, encodings, encoding_indices = self.vector_quantization(z)
+        # 🔥 LAYERNORM + CLIPPING
+        z = F.layer_norm(z, [z.size(1), z.size(2)])
+        z = torch.clamp(z, min=-5.0, max=5.0)
         
-                # ✅ BYPASS quantizer per test
-        quantized = z  # Usa direttamente l'output dell'encoder
-        vq_loss = torch.tensor(0.0, device=z.device)
-        perplexity = torch.tensor(512.0, device=z.device)  # Valore dummy
-        encodings = None
-        encoding_indices = None
+        if self.use_quantizer:
+            # 🔥 ImprovedVectorQuantizer ritorna 4 valori (non 5!)
+            vq_loss, quantized, perplexity, encodings = \
+                self.vector_quantization(z)
+            encoding_indices = None  # Non fornito da ImprovedVQ
+        else:
+            quantized = z
+            vq_loss = torch.tensor(0.0, device=z.device)
+            perplexity = torch.tensor(512.0, device=z.device)
+            encodings = None
+            encoding_indices = None
         
         # Decode
-        x_recon = self.decoder(quantized)  # (B, 30, ~60)
+        x_recon = self.decoder(quantized)
         
-        # ✅ Assicura che le dimensioni finali combacino ESATTAMENTE
+        # Assicura match dimensioni
         if x_recon.shape[2] != x.shape[2]:
-            # Usa interpolazione lineare per garantire match esatto
             x_recon = F.interpolate(
                 x_recon, size=x.shape[2], mode='linear', align_corners=False
             )
 
         return vq_loss, x_recon, perplexity, quantized, encodings
+    
     
     def encode(self, x):
         """Encode input to quantized representation."""

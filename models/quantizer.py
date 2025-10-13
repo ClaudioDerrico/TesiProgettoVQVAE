@@ -26,7 +26,8 @@ class VectorQuantizer(nn.Module):
         self.beta = beta
 
         self.embedding = nn.Embedding(self.n_e, self.e_dim)
-        self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
+        # ✅ Inizializzazione più ampia per coprire lo spazio latente
+        self.embedding.weight.data.uniform_(-3.0, 3.0)
 
     def forward(self, z):
         """
@@ -135,12 +136,12 @@ class ImprovedVectorQuantizer(nn.Module):
         
         # Embeddings
         self.embedding = nn.Embedding(self.n_e, self.e_dim)
-        self.embedding.weight.data.normal_()
+        self.embedding.weight.data.normal_()  # ✅ Inizializzazione normale
         
         # EMA parameters
         self.register_buffer('cluster_size', torch.zeros(n_e))
         self.register_buffer('embed_avg', self.embedding.weight.data.clone())
-        
+    
     def forward(self, inputs):
         """Handle both 1D (B,C,T) and 2D (B,C,H,W) inputs"""
         input_shape = inputs.shape
@@ -182,7 +183,7 @@ class ImprovedVectorQuantizer(nn.Module):
         avg_probs = torch.mean(encodings, dim=0)
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
         
-        # EMA update
+        # 🔥 EMA update (previene codebook collapse!)
         if self.training:
             self.cluster_size.data.mul_(self.decay).add_(
                 torch.sum(encodings, dim=0), alpha=1 - self.decay)

@@ -29,27 +29,54 @@ from datasets.calcium import (
     TEST_SESSION_IDS
 )
 
+MODEL_CONFIG = {
+    'num_neurons': 30,
+    'num_hiddens': 512,
+    'num_residual_layers': 6,
+    'num_residual_hiddens': 256,
+    'num_embeddings': 2048,
+    'embedding_dim': 256,
+    'commitment_cost': 0.0000001,  # Molto basso
+    'dropout_rate': 0.0,
+    'use_quantizer': True,  # ✅ ABILITATO
+}
+
 def create_enhanced_calcium_vqvae():
-    """Modello PICCOLO ma funzionante"""
+    """Modello con VQ ABILITATO"""
     return CalciumVQVAE(
-        num_neurons=30,
-        num_hiddens=512,           
-        num_residual_layers=6,
-        num_residual_hiddens=256,
-        num_embeddings=2048,
-        embedding_dim=256,
-        commitment_cost=0.0001,    
-        dropout_rate=0.0
+        num_neurons=MODEL_CONFIG['num_neurons'],
+        num_hiddens=MODEL_CONFIG['num_hiddens'],
+        num_residual_layers=MODEL_CONFIG['num_residual_layers'],
+        num_residual_hiddens=MODEL_CONFIG['num_residual_hiddens'],
+        num_embeddings=MODEL_CONFIG['num_embeddings'],
+        embedding_dim=MODEL_CONFIG['embedding_dim'],
+        commitment_cost=MODEL_CONFIG['commitment_cost'],
+        dropout_rate=MODEL_CONFIG['dropout_rate'],
+        use_quantizer=MODEL_CONFIG['use_quantizer']  # ✅ CRITICO!
     )
 
-def train_epoch_enhanced(model, dataloader, optimizer, device):
-    """Training PURO - solo reconstruction, NO VQ"""
+def train_epoch_enhanced(model, dataloader, optimizer, device, epoch, config):
+    """Training con VQ SCHEDULATO"""
     model.train()
     
     # Disabilita dropout
     for module in model.modules():
         if isinstance(module, torch.nn.Dropout):
             module.eval()
+    
+    # 🔥 CALCOLA PESO VQ DINAMICO
+    warmup_epochs = config.get('warmup_epochs', 10)
+    max_epochs = config.get('max_epochs', 100)
+    vq_weight_final = config.get('vq_weight_final', 0.01)
+    
+    if epoch < warmup_epochs:
+        vq_weight = 0.0  # NO VQ durante warmup
+        phase = "WARMUP"
+    else:
+        # Aumenta linearmente da 0 a vq_weight_final
+        progress = (epoch - warmup_epochs) / max(1, (max_epochs - warmup_epochs))
+        vq_weight = min(progress * vq_weight_final, vq_weight_final)
+        phase = "VQ_ACTIVE"
     
     total_loss = 0
     total_recon_loss = 0
@@ -61,7 +88,7 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
         
         vq_loss, recon, perplexity, _, _ = model(neural_data)
         
-        # ✅ HUBER LOSS manuale (smooth L1)
+        # ✅ HUBER LOSS (identico a prima)
         diff = torch.abs(recon - neural_data)
         delta = 1.0
         recon_loss = torch.where(
@@ -70,13 +97,14 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
             delta * (diff - 0.5 * delta)
         ).mean()
         
-        # ✅ VARIANCE LOSS (evita collasso)
+        # ✅ VARIANCE LOSS (identico a prima)
         var_original = torch.var(neural_data)
         var_recon = torch.var(recon)
         var_loss = (var_original - var_recon) ** 2
         
-        # 🔥 LOSS COMBINATA
-        loss = recon_loss + 1.0 * var_loss  # Era 0.5, ora 1.0
+        # 🔥 LOSS COMBINATA con VQ schedulato
+        loss = recon_loss + 1.0 * var_loss + vq_weight * vq_loss
+        
         optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -92,7 +120,9 @@ def train_epoch_enhanced(model, dataloader, optimizer, device):
         'train/total_loss': total_loss / num_batches,
         'train/recon_loss': total_recon_loss / num_batches,
         'train/vq_loss': total_vq_loss / num_batches,
-        'train/perplexity': total_perplexity / num_batches
+        'train/perplexity': total_perplexity / num_batches,
+        'train/vq_weight': vq_weight,  # 🆕 Log del peso
+        'train/phase': phase  # 🆕 Log della fase
     }
 
 def evaluate_model_enhanced(model, dataloader, device):
@@ -253,9 +283,9 @@ def log_reconstructions_enhanced(original, reconstructed, epoch, num_examples=2)
 def main():
     wandb.init(
         project="calcium-vqvae-multi-session",
-        name="10sessions-SMALL-NO-VQ",  # 🔥 Nome chiaro
+        name="10sessions-WITH-VQ-scheduled-BS16",  # 🆕 Specifico batch size
         config={
-            "model_type": "Small_CalciumVQVAE_NoVQ",
+            "model_type": "CalciumVQVAE_Scheduled",
             "num_sessions_train": len(TRAINING_SESSION_IDS),
             "num_sessions_test": len(TEST_SESSION_IDS),
             "num_neurons": 30,
@@ -267,15 +297,20 @@ def main():
             "num_residual_hiddens": 256,
             "num_embeddings": 2048,
             "embedding_dim": 256,
-            "commitment_cost": 0.0001,
-            # Training AGGRESSIVO per reconstruction
-            "batch_size": 128,              
-            "learning_rate": 0.0003,       
-            "max_epochs": 100,
+            "commitment_cost": 0.0000001,
+            "dropout_rate": 0.0,
+            
+            # Training parameters
+            "batch_size": 16,  # ✅ PICCOLO per più update steps
+            "learning_rate": 0.0003,  # OK per batch 16
+            "max_epochs": 200,  # Più epoche = va bene con batch piccolo
             "patience": 50,
-            "vq_weight": 0.0,              
-            "target_train_loss": 0.005,  
-            "warmup_epochs": 0
+            
+            # VQ SCHEDULING
+            "warmup_epochs": 10,      # Epoch senza VQ
+            "vq_weight_final": 0.01,  # Peso massimo VQ
+            "use_quantizer": True,
+            "target_train_loss": 0.005,
         }
     )
     
@@ -347,7 +382,7 @@ def main():
     
 
         scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=50, gamma=0.5
+            optimizer, step_size=50, gamma=0.5
         )
         
         # Training loop
@@ -358,7 +393,10 @@ def main():
         
         for epoch in range(wandb.config.max_epochs):
             # 🎯 TRAINING
-            train_metrics = train_epoch_enhanced(model, train_loader, optimizer, device)
+            train_metrics = train_epoch_enhanced(
+                model, train_loader, optimizer, device, 
+                epoch, wandb.config  # 🆕 Passa epoch e config
+            )
             
             scheduler.step()
             current_lr = scheduler.get_last_lr()[0]
@@ -381,7 +419,9 @@ def main():
                 train_perfect = current_train_loss < 0.01
                 train_excellent = current_train_loss < 0.05
                 
-                print(f"Epoch {epoch:3d}: Train Loss={current_train_loss:.6f} {'🎯 PERFECT!' if train_perfect else '🔥 EXCELLENT!' if train_excellent else ''}")
+                print(f"Epoch {epoch:3d} [{train_metrics['train/phase']}]: Train Loss={current_train_loss:.6f} {'🎯 PERFECT!' if train_perfect else '🔥 EXCELLENT!' if train_excellent else ''}")
+                print(f"           VQ Weight={train_metrics['train/vq_weight']:.6f}, VQ Loss={train_metrics['train/vq_loss']:.6f}")  # 🆕
+                print(f"           Perplexity={train_metrics['train/perplexity']:.1f}")  # 🆕
                 print(f"           Test MSE={current_test_mse:.4f}, R²={test_metrics['test/r_squared']:.4f}")
                 print(f"           Correlations: Perfect={test_metrics['test/perfect_neurons_pct']:.1f}%, Excellent={test_metrics['test/excellent_neurons_pct']:.1f}%")
                 print(f"           LR={current_lr:.2e}")
@@ -425,7 +465,11 @@ def main():
         # Final evaluation
         print("\n🎯 VALUTAZIONE FINALE:")
         final_metrics = evaluate_model_enhanced(model, test_loader, device)
-        final_train_metrics = train_epoch_enhanced(model, train_loader, optimizer, device)
+        final_train_metrics = train_epoch_enhanced(
+        model, train_loader, optimizer, device,
+        epoch if 'epoch' in locals() else wandb.config.max_epochs - 1,
+        wandb.config
+    )
         
         print(f"🔥 TRAIN RECON LOSS FINALE: {final_train_metrics['train/recon_loss']:.8f}")
         print(f"📊 Test MSE: {final_metrics['test/mse']:.6f}")
@@ -445,13 +489,12 @@ def main():
         # 💾 SALVA IL MODELLO FINALE con config CORRETTI
         print(f"\n💾 Salvando modello finale...")
         os.makedirs('./results', exist_ok=True)
-        
+
         final_checkpoint = {
             'epoch': epoch if 'epoch' in locals() else wandb.config.max_epochs,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
             'model_config': {
-                # 🔥 CONFIG CORRETTI per modello BIG
                 'num_neurons': wandb.config.num_neurons,
                 'window_size': wandb.config.window_size,
                 'stride': wandb.config.stride,
@@ -461,22 +504,26 @@ def main():
                 'num_embeddings': wandb.config.num_embeddings,
                 'embedding_dim': wandb.config.embedding_dim,
                 'commitment_cost': wandb.config.commitment_cost,
-                'dropout_rate': 0.0
+                'dropout_rate': 0.0,
+                'use_quantizer': True  # 🆕 Salva il flag
             },
             'dataset_info': dataset_info,
             'training_sessions': TRAINING_SESSION_IDS,
             'test_sessions': TEST_SESSION_IDS,
             'final_train_loss': final_train_metrics['train/recon_loss'],
             'final_test_mse': final_metrics['test/mse'],
-            'final_r_squared': final_metrics['test/r_squared']
+            'final_r_squared': final_metrics['test/r_squared'],
+            'final_vq_weight': final_train_metrics['train/vq_weight'],  # 🆕
+            'final_perplexity': final_train_metrics['train/perplexity']  # 🆕
         }
-        
-        torch.save(final_checkpoint, './results/best_multi_session_BIG_30x60.pth')
-        print(f"✅ Modello salvato come ./results/best_multi_session_BIG_30x60.pth")
-        
+
+        # ✅ SALVA UNA VOLTA SOLA con nome descrittivo
+        torch.save(final_checkpoint, './results/best_multi_session_VQ_30x60.pth')
+        print(f"✅ Modello salvato come ./results/best_multi_session_VQ_30x60.pth")
+
         # Salva anche su W&B
         try:
-            wandb.save('./results/best_multi_session_BIG_30x60.pth')
+            wandb.save('./results/best_multi_session_VQ_30x60.pth')
             print(f"📤 Modello caricato anche su W&B")
         except Exception as e:
             print(f"⚠️ Impossibile caricare su W&B: {e}")
