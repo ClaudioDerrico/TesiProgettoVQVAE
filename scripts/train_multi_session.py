@@ -31,8 +31,8 @@ MODEL_CONFIG = {
     'num_hiddens': 512,
     'num_residual_layers': 6,
     'num_residual_hiddens': 256,
-    'num_embeddings': 2048,
-    'embedding_dim': 256,
+    'num_embeddings': 16,
+    'embedding_dim': 32,
     'commitment_cost': 1.0,  # ✅ AUMENTATO per evitare collapse
     'dropout_rate': 0.0,
     'use_quantizer': True,
@@ -260,13 +260,13 @@ def main():
             # Training parameters
             "batch_size": 32,  # ✅ Maggiore per stabilità
             "learning_rate": 0.0003,
-            "max_epochs": 100,
+            "max_epochs": 105,
             "patience": 50,
             
             # VQ SCHEDULING ✅ IMPROVED
             "warmup_epochs": 20,
             "vq_weight_start": 0.0,
-            "vq_weight_final": 0.1,  # Più alto
+            "vq_weight_final": 0.3,  # ← AUMENTA (era 0.1)
             
             **MODEL_CONFIG
         }
@@ -426,7 +426,7 @@ def main():
             'final_metrics': final_metrics
         }
         
-        torch.save(checkpoint, './results/best_multi_session_FIXED_VQ.pth')
+        torch.save(checkpoint, './results/best_multi_session_FIXED_VQ_16.pth')
         print("✅ Model saved!")
         
     except Exception as e:
