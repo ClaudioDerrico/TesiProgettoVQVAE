@@ -178,23 +178,6 @@ class CalciumVQVAE(nn.Module):
             return {'usage_percentage': 100.0}
 
 
-def create_simple_calcium_vqvae(config=None):
-    """Factory function to create CalciumVQVAE."""
-    default_config = {
-        'num_neurons': 30,
-        'num_hiddens': 128,
-        'num_residual_layers': 2,
-        'num_residual_hiddens': 32,
-        'num_embeddings': 512,
-        'embedding_dim': 64,
-        'commitment_cost': 0.25,
-        'dropout_rate': 0.3
-    }
-    
-    if config:
-        default_config.update(config)
-    
-    return CalciumVQVAE(**default_config)
 
 
 if __name__ == "__main__":
