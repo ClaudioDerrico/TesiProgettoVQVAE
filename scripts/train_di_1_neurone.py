@@ -27,13 +27,13 @@ from datasets.calcium import (
 
 # ✅ FIXED MODEL CONFIG - ANTI-COLLAPSE
 MODEL_CONFIG = {
-    'num_neurons': 30,
-    'num_hiddens': 512,
-    'num_residual_layers': 6,
-    'num_residual_hiddens': 256,
-    'num_embeddings': 1024,
-    'embedding_dim': 256,
-    'commitment_cost': 1.0,  # ✅ AUMENTATO per evitare collapse
+    'num_neurons': 1,         # 1 neurone
+    'num_hiddens': 64,        # ← RIDUCI da 512 (troppo grande)
+    'num_residual_layers': 2, # ← RIDUCI da 6
+    'num_residual_hiddens': 32, # ← RIDUCI da 256
+    'num_embeddings': 16,     # ← RIDUCI da 1024 (troppi!)
+    'embedding_dim': 16,      # ← RIDUCI da 256 (troppo!)
+    'commitment_cost': 1.0,
     'dropout_rate': 0.0,
     'use_quantizer': True,
 }
@@ -258,8 +258,8 @@ def main():
             "stride": 50,
             
             # Training parameters
-            "batch_size": 32,  # ✅ Maggiore per stabilità
-            "learning_rate": 0.0003,
+            "batch_size": 128,  # ✅ Maggiore per stabilità
+            "learning_rate": 0.001,
             "max_epochs": 105,
             "patience": 50,
             
@@ -426,7 +426,7 @@ def main():
             'final_metrics': final_metrics
         }
         
-        torch.save(checkpoint, './results/best_multi_session_FIXED_VQ_16.pth')
+        torch.save(checkpoint, './results/modello_1_neurone.pth')
         print("✅ Model saved!")
         
     except Exception as e:

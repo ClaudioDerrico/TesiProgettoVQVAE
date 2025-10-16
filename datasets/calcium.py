@@ -509,7 +509,7 @@ class UnifiedMultiSessionDataset(Dataset):
                     print(f"Clipping...", end=" ")
                     dff_data = np.clip(dff_data, -2, 5)
                     
-                    # ✅ POI normalizza (se vuoi)
+                    # ✅ POI normalizza 
                     # global_mean = np.mean(dff_data)
                     # global_std = np.std(dff_data)
                     # if global_std > 1e-8:
