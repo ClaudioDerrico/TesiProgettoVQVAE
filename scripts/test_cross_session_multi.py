@@ -36,19 +36,19 @@ from datasets.calcium import SimpleAllenBrainDataset, TRAINING_SESSION_IDS, TEST
 WANDB_PROJECT = "calcium-vqvae-cross-session-multi"
 WANDB_RUN_NAME = f"test-3sessions-{datetime.now().strftime('%m%d-%H%M')}"
 
-CHECKPOINT_PATH = "results/best_multi_session_FIXED_VQ_16.pth"  # ✅ Modello multi-session
+CHECKPOINT_PATH = "results/best_multi_session_FIXED_VQ_2048.pth"  # ✅ Modello multi-session
 SAVE_DIR = "cross_session_multi_analysis"
 
 MODEL_CONFIG = {
     'num_neurons': 30,
-    'num_hiddens': 512,        
-    'num_residual_layers': 6,  
-    'num_residual_hiddens': 256,
-    'num_embeddings': 2048,
+    'num_hiddens': 512,
+    'num_residual_layers': 6,
+    'num_residual_hiddens': 256,      # ✅ 256 (come nel training)
+    'num_embeddings': 2048,             # ✅ 512 (come nel training)
     'embedding_dim': 256,
-    'commitment_cost': 0.05,
+    'commitment_cost': 1.0,            # ✅ 1.0 (come nel training)
     'dropout_rate': 0.0,
-    'use_quantizer': False,
+    'use_quantizer': True,
 }
 
 BATCH_SIZE = 32

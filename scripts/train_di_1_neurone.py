@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-FIXED Training script with proper VQ-VAE handling
+FIXED Training script for SINGLE NEURON with proper architecture
 """
 
 import sys
@@ -8,6 +8,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from sklearn.metrics import mean_squared_error, mean_absolute_error
@@ -25,21 +26,21 @@ from datasets.calcium import (
     TEST_SESSION_IDS
 )
 
-# ✅ FIXED MODEL CONFIG - ANTI-COLLAPSE
+# ✅ ARCHITETTURA OTTIMIZZATA PER 1 NEURONE
 MODEL_CONFIG = {
-    'num_neurons': 1,         # 1 neurone
-    'num_hiddens': 64,        # ← RIDUCI da 512 (troppo grande)
-    'num_residual_layers': 2, # ← RIDUCI da 6
-    'num_residual_hiddens': 32, # ← RIDUCI da 256
-    'num_embeddings': 16,     # ← RIDUCI da 1024 (troppi!)
-    'embedding_dim': 16,      # ← RIDUCI da 256 (troppo!)
-    'commitment_cost': 1.0,
-    'dropout_rate': 0.0,
+    'num_neurons': 1,           # 1 neurone
+    'num_hiddens': 128,         # ← AUMENTATO (era 64)
+    'num_residual_layers': 3,   # ← AUMENTATO (era 2)
+    'num_residual_hiddens': 64, # ← AUMENTATO (era 32)
+    'num_embeddings': 32,       # ← AUMENTATO (era 16)
+    'embedding_dim': 32,        # ← AUMENTATO (era 16)
+    'commitment_cost': 0.25,    # ← RIDOTTO (era 1.0)
+    'dropout_rate': 0.1,        # ← AGGIUNTO dropout leggero
     'use_quantizer': True,
 }
 
-def create_enhanced_calcium_vqvae():
-    """Create model with PROPER quantizer settings"""
+def create_single_neuron_vqvae():
+    """Create model optimized for single neuron"""
     return CalciumVQVAE(
         num_neurons=MODEL_CONFIG['num_neurons'],
         num_hiddens=MODEL_CONFIG['num_hiddens'],
@@ -52,83 +53,94 @@ def create_enhanced_calcium_vqvae():
         use_quantizer=MODEL_CONFIG['use_quantizer']
     )
 
-def train_epoch_enhanced(model, dataloader, optimizer, device, epoch, config):
-    """Training with PROPER VQ SCHEDULING"""
+def compute_loss_with_temporal_smoothness(recon, target, alpha=0.1):
+    """
+    Loss function with temporal smoothness regularization
+    Important for single neuron time series
+    """
+    # Reconstruction loss (MSE)
+    recon_loss = F.mse_loss(recon, target)
+    
+    # Temporal smoothness loss (penalize large temporal differences)
+    if recon.shape[2] > 1:  # Check temporal dimension
+        diff_recon = recon[:, :, 1:] - recon[:, :, :-1]
+        diff_target = target[:, :, 1:] - target[:, :, :-1]
+        smooth_loss = F.mse_loss(diff_recon, diff_target)
+    else:
+        smooth_loss = 0.0
+    
+    # Combined loss
+    total_loss = recon_loss + alpha * smooth_loss
+    
+    return total_loss, recon_loss, smooth_loss
+
+def train_epoch_single_neuron(model, dataloader, optimizer, device, epoch, config):
+    """Training optimized for single neuron"""
     model.train()
     
-    # Disable dropout explicitly
-    for module in model.modules():
-        if isinstance(module, torch.nn.Dropout):
-            module.eval()
-    
-    # ✅ IMPROVED VQ WEIGHT SCHEDULING
-    warmup_epochs = config.get('warmup_epochs', 20)  # Più warmup
+    # VQ Weight Scheduling - più graduale
+    warmup_epochs = config.get('warmup_epochs', 30)
     max_epochs = config.get('max_epochs', 200)
-    vq_weight_start = config.get('vq_weight_start', 0.0)
-    vq_weight_final = config.get('vq_weight_final', 0.1)  # Target più alto
     
     if epoch < warmup_epochs:
-        # Warmup: peso VQ cresce gradualmente da 0
-        progress = epoch / warmup_epochs
-        vq_weight = vq_weight_start + progress * (vq_weight_final - vq_weight_start) * 0.1
+        # Warmup phase: focus on reconstruction
+        vq_weight = 0.001 * (epoch / warmup_epochs)
         phase = "WARMUP"
     else:
-        # Post-warmup: aumenta fino a vq_weight_final
+        # Post-warmup: gradually increase VQ
         progress = (epoch - warmup_epochs) / max(1, (max_epochs - warmup_epochs))
-        vq_weight = vq_weight_start + progress * vq_weight_final
-        vq_weight = min(vq_weight, vq_weight_final)
+        vq_weight = 0.001 + 0.1 * progress  # Max 0.101
         phase = "VQ_ACTIVE"
     
     total_loss = 0
     total_recon_loss = 0
     total_vq_loss = 0
     total_perplexity = 0
+    total_smooth_loss = 0
     
     for neural_data in dataloader:
         neural_data = neural_data.to(device)
         
-        # ✅ Forward returns 5 values now
+        # Forward pass
         vq_loss, recon, perplexity, _, _ = model(neural_data)
         
-        # ✅ HUBER LOSS per reconstruction
-        diff = torch.abs(recon - neural_data)
-        delta = 1.0
-        recon_loss = torch.where(
-            diff < delta,
-            0.5 * diff ** 2,
-            delta * (diff - 0.5 * delta)
-        ).mean()
+        # Custom loss with temporal smoothness
+        combined_loss, recon_loss, smooth_loss = compute_loss_with_temporal_smoothness(
+            recon, neural_data, alpha=0.05
+        )
         
-        # ✅ VARIANCE PRESERVATION
-        var_original = torch.var(neural_data)
-        var_recon = torch.var(recon)
-        var_loss = (var_original - var_recon) ** 2
+        # Total loss with VQ
+        loss = combined_loss + vq_weight * vq_loss
         
-        # ✅ COMBINED LOSS with scheduled VQ
-        loss = recon_loss + 0.5 * var_loss + vq_weight * vq_loss
-        
+        # Backward pass
         optimizer.zero_grad()
         loss.backward()
+        
+        # Gradient clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        
         optimizer.step()
         
+        # Accumulate losses
         total_loss += loss.item()
         total_recon_loss += recon_loss.item()
         total_vq_loss += vq_loss.item()
         total_perplexity += perplexity.item()
+        total_smooth_loss += smooth_loss if isinstance(smooth_loss, float) else smooth_loss.item()
     
     num_batches = len(dataloader)
     return {
         'train/total_loss': total_loss / num_batches,
         'train/recon_loss': total_recon_loss / num_batches,
         'train/vq_loss': total_vq_loss / num_batches,
+        'train/smooth_loss': total_smooth_loss / num_batches,
         'train/perplexity': total_perplexity / num_batches,
         'train/vq_weight': vq_weight,
         'train/phase': phase
     }
 
-def evaluate_model_enhanced(model, dataloader, device):
-    """Evaluation with proper handling"""
+def evaluate_model_single_neuron(model, dataloader, device):
+    """Evaluation for single neuron"""
     model.eval()
     all_original = []
     all_reconstructed = []
@@ -140,7 +152,6 @@ def evaluate_model_enhanced(model, dataloader, device):
         for neural_data in dataloader:
             neural_data = neural_data.to(device)
             
-            # ✅ Unpack 5 values
             vq_loss, recon, perplexity, _, _ = model(neural_data)
             
             all_original.append(neural_data.cpu().numpy())
@@ -152,11 +163,11 @@ def evaluate_model_enhanced(model, dataloader, device):
     original = np.concatenate(all_original, axis=0)
     reconstructed = np.concatenate(all_reconstructed, axis=0)
     
-    # MSE
+    # Compute metrics
     mse = np.mean((original - reconstructed) ** 2)
     mae = np.mean(np.abs(original - reconstructed))
     
-    # R²
+    # R² score
     y_true = original.flatten()
     y_pred = reconstructed.flatten()
     y_mean = np.mean(y_true)
@@ -166,117 +177,122 @@ def evaluate_model_enhanced(model, dataloader, device):
     
     r_squared = 1 - (ss_res / ss_tot) if ss_tot > 1e-10 else 0.0
     
-    # Per-neuron correlations
+    # Temporal correlation (important for time series)
     correlations = []
     for sample_idx in range(original.shape[0]):
-        for neuron_idx in range(original.shape[1]):
-            orig_neuron = original[sample_idx, neuron_idx, :]
-            recon_neuron = reconstructed[sample_idx, neuron_idx, :]
-            
-            if len(orig_neuron) > 0 and np.std(orig_neuron) > 1e-8 and np.std(recon_neuron) > 1e-8:
-                corr, _ = pearsonr(orig_neuron, recon_neuron)
-                correlations.append(corr if not np.isnan(corr) else 0)
+        # Since we have 1 neuron, compute correlation over time
+        orig_trace = original[sample_idx, 0, :]  # Shape: (time,)
+        recon_trace = reconstructed[sample_idx, 0, :]
+        
+        if np.std(orig_trace) > 1e-8 and np.std(recon_trace) > 1e-8:
+            corr, _ = pearsonr(orig_trace, recon_trace)
+            correlations.append(corr if not np.isnan(corr) else 0)
+        else:
+            correlations.append(0)
     
-    perfect_neurons = np.sum(np.array(correlations) > 0.99)
-    excellent_neurons = np.sum(np.array(correlations) > 0.95)
-    good_neurons = np.sum(np.array(correlations) > 0.5)
+    # Signal-to-noise ratio
+    signal_power = np.mean(original ** 2)
+    noise_power = np.mean((original - reconstructed) ** 2)
+    snr = 10 * np.log10(signal_power / noise_power) if noise_power > 0 else 0
     
     return {
         'test/mse': mse,
         'test/mae': mae,
         'test/r_squared': r_squared,
-        'test/pearson_mean': np.mean(correlations) if correlations else 0,
-        'test/pearson_min': np.min(correlations) if correlations else 0,
-        'test/pearson_max': np.max(correlations) if correlations else 1,
-        'test/perfect_neurons': perfect_neurons,
-        'test/perfect_neurons_pct': (perfect_neurons / len(correlations) * 100) if correlations else 0,
-        'test/excellent_neurons': excellent_neurons,
-        'test/excellent_neurons_pct': (excellent_neurons / len(correlations) * 100) if correlations else 0,
-        'test/good_neurons': good_neurons,
-        'test/good_neurons_pct': (good_neurons / len(correlations) * 100) if correlations else 0,
+        'test/correlation_mean': np.mean(correlations) if correlations else 0,
+        'test/correlation_std': np.std(correlations) if correlations else 0,
+        'test/correlation_min': np.min(correlations) if correlations else 0,
+        'test/correlation_max': np.max(correlations) if correlations else 1,
+        'test/snr_db': snr,
         'test/vq_loss': total_vq_loss / num_batches if num_batches > 0 else 0,
         'test/perplexity': total_perplexity / num_batches if num_batches > 0 else 0,
     }
 
-def log_reconstructions_enhanced(original, reconstructed, epoch, num_examples=2):
-    """Log reconstructions to W&B"""
-    for i in range(min(num_examples, original.shape[0])):
-        fig, axes = plt.subplots(2, 2, figsize=(15, 8))
+def visualize_single_neuron_reconstruction(original, reconstructed, epoch):
+    """Specialized visualization for single neuron"""
+    num_examples = min(4, original.shape[0])
+    
+    fig, axes = plt.subplots(num_examples, 2, figsize=(15, 3*num_examples))
+    if num_examples == 1:
+        axes = axes.reshape(1, -1)
+    
+    for i in range(num_examples):
+        # Get single neuron trace
+        orig_trace = original[i, 0, :]  # Shape: (time,)
+        recon_trace = reconstructed[i, 0, :]
         
-        neuron_vars = np.var(original[i], axis=1)
-        top_neurons = np.argsort(neuron_vars)[-15:]
+        time_points = np.arange(len(orig_trace))
         
-        im1 = axes[0,0].imshow(original[i, top_neurons, :], aspect='auto', cmap='viridis')
-        axes[0,0].set_title('Original')
-        axes[0,0].set_ylabel('Neurons')
+        # Plot original vs reconstruction
+        axes[i, 0].plot(time_points, orig_trace, 'b-', label='Original', alpha=0.7)
+        axes[i, 0].plot(time_points, recon_trace, 'r-', label='Reconstruction', alpha=0.7)
+        axes[i, 0].set_xlabel('Time')
+        axes[i, 0].set_ylabel('Activity')
+        axes[i, 0].set_title(f'Sample {i+1}: Overlay')
+        axes[i, 0].legend()
+        axes[i, 0].grid(True, alpha=0.3)
         
-        im2 = axes[0,1].imshow(reconstructed[i, top_neurons, :], aspect='auto', cmap='viridis')
-        axes[0,1].set_title('Reconstruction')
+        # Plot error
+        error = np.abs(orig_trace - recon_trace)
+        axes[i, 1].plot(time_points, error, 'k-', alpha=0.7)
+        axes[i, 1].fill_between(time_points, 0, error, alpha=0.3, color='red')
+        axes[i, 1].set_xlabel('Time')
+        axes[i, 1].set_ylabel('Absolute Error')
+        axes[i, 1].set_title(f'Sample {i+1}: Error')
+        axes[i, 1].grid(True, alpha=0.3)
         
-        error = np.abs(original[i, top_neurons, :] - reconstructed[i, top_neurons, :])
-        im3 = axes[1,0].imshow(error, aspect='auto', cmap='Reds')
-        axes[1,0].set_title('Absolute Error')
-        axes[1,0].set_xlabel('Time')
-        axes[1,0].set_ylabel('Neurons')
-        
-        correlations = []
-        for neuron_idx in top_neurons:
-            corr, _ = pearsonr(original[i, neuron_idx, :], reconstructed[i, neuron_idx, :])
-            correlations.append(corr if not np.isnan(corr) else 0)
-        
-        axes[1,1].bar(range(len(correlations)), correlations)
-        axes[1,1].set_title('Per-Neuron Correlation')
-        axes[1,1].set_xlabel('Neuron Index')
-        axes[1,1].set_ylabel('Correlation')
-        axes[1,1].axhline(y=0.99, color='r', linestyle='--', label='Perfect (0.99)')
-        axes[1,1].axhline(y=0.95, color='orange', linestyle='--', label='Excellent (0.95)')
-        axes[1,1].legend()
-        
-        plt.tight_layout()
-        
-        try:
-            buf = BytesIO()
-            fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
-            buf.seek(0)
-            pil_image = Image.open(buf)
-            wandb.log({f"reconstructions/epoch_{epoch}_example_{i}": wandb.Image(pil_image)})
-            buf.close()
-        except Exception as e:
-            print(f"⚠️ W&B logging failed: {e}")
-        finally:
-            plt.close(fig)
+        # Add correlation as text
+        if np.std(orig_trace) > 1e-8 and np.std(recon_trace) > 1e-8:
+            corr, _ = pearsonr(orig_trace, recon_trace)
+            axes[i, 1].text(0.02, 0.98, f'Corr: {corr:.3f}', 
+                          transform=axes[i, 1].transAxes, 
+                          verticalalignment='top',
+                          bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    
+    plt.suptitle(f'Single Neuron Reconstructions - Epoch {epoch}', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    # Convert to numpy array first, then to PIL Image
+    fig.canvas.draw()
+    buf = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    buf = buf.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    plt.close(fig)
+    
+    # Create PIL image from numpy array
+    pil_image = Image.fromarray(buf)
+    
+    return pil_image
 
 def main():
+    # Initialize W&B
     wandb.init(
-        project="calcium-vqvae-multi-session",
-        name="FIXED-VQ-proper-scheduling",
+        project="calcium-vqvae-single-neuron",
+        name="single-neuron-fixed-architecture",
         config={
-            "model_type": "CalciumVQVAE_FixedVQ",
+            "model_type": "CalciumVQVAE_SingleNeuron",
             "num_sessions_train": len(TRAINING_SESSION_IDS),
             "num_sessions_test": len(TEST_SESSION_IDS),
             "window_size": 60,
             "stride": 50,
             
             # Training parameters
-            "batch_size": 128,  # ✅ Maggiore per stabilità
-            "learning_rate": 0.001,
-            "max_epochs": 105,
-            "patience": 50,
+            "batch_size": 64,  # Larger batch for single neuron
+            "learning_rate": 0.0005,  # Lower LR for stability
+            "max_epochs": 205,
+            "patience": 40,
             
-            # VQ SCHEDULING ✅ IMPROVED
-            "warmup_epochs": 20,
-            "vq_weight_start": 0.0,
-            "vq_weight_final": 0.3,  # ← AUMENTA (era 0.1)
+            # VQ scheduling
+            "warmup_epochs": 30,
             
             **MODEL_CONFIG
         }
     )
     
-    print("🎯 FIXED VQ-VAE TRAINING")
+    print("🧠 SINGLE NEURON VQ-VAE TRAINING (FIXED)")
     print("="*70)
-    print(f"✅ Commitment cost: {MODEL_CONFIG['commitment_cost']}")
-    print(f"✅ VQ weight final: {wandb.config.vq_weight_final}")
-    print(f"✅ Warmup epochs: {wandb.config.warmup_epochs}")
+    print(f"✅ Model config:")
+    for key, value in MODEL_CONFIG.items():
+        print(f"   {key}: {value}")
     print("="*70)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -285,32 +301,33 @@ def main():
     print(f"💻 Using device: {device}")
     
     try:
-        # Dataset loading
+        # Load datasets
+        print("\n📊 Loading datasets...")
         train_loader, test_loader, dataset_info = create_unified_dataloaders(
             train_session_ids=TRAINING_SESSION_IDS,
             batch_size=wandb.config.batch_size,
             test_split=0.2,
             window_size=wandb.config.window_size,
             stride=wandb.config.stride,
-            min_neurons=wandb.config.num_neurons,
+            min_neurons=wandb.config.num_neurons,  # 1 neuron
             num_workers=0,
             use_cross_session_test=False
         )
         
         print(f"✅ Dataset loaded:")
         print(f"   Sessions: {dataset_info['num_sessions_train']}")
-        print(f"   Train: {dataset_info['train_samples']}")
-        print(f"   Test: {dataset_info['test_samples']}")
+        print(f"   Train samples: {dataset_info['train_samples']}")
+        print(f"   Test samples: {dataset_info['test_samples']}")
         
         # Create model
-        print("\n🏗️ Creating FIXED model...")
-        model = create_enhanced_calcium_vqvae().to(device)
+        print("\n🏗️ Creating model...")
+        model = create_single_neuron_vqvae().to(device)
         
         num_params = sum(p.numel() for p in model.parameters())
         wandb.log({"model/num_parameters": num_params})
-        print(f"✅ Model: {num_params:,} parameters")
+        print(f"✅ Model created: {num_params:,} parameters")
         
-        # Optimizer
+        # Optimizer with cosine annealing
         optimizer = torch.optim.AdamW(
             model.parameters(), 
             lr=wandb.config.learning_rate,
@@ -318,30 +335,34 @@ def main():
             betas=(0.9, 0.999)
         )
         
-        scheduler = torch.optim.lr_scheduler.StepLR(
-            optimizer, step_size=50, gamma=0.5
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, 
+            T_max=wandb.config.max_epochs,
+            eta_min=1e-6
         )
         
         # Training loop
         print("\n🚀 Starting training...")
-        best_test_mse = float('inf')
+        best_test_corr = -1
         best_train_loss = float('inf')
         patience_counter = 0
         
         for epoch in range(wandb.config.max_epochs):
-            train_metrics = train_epoch_enhanced(
+            # Train
+            train_metrics = train_epoch_single_neuron(
                 model, train_loader, optimizer, device, 
                 epoch, wandb.config
             )
             
+            # Update learning rate
             scheduler.step()
             current_lr = scheduler.get_last_lr()[0]
             
+            # Evaluate every 5 epochs
             if epoch % 5 == 0:
-                test_metrics = evaluate_model_enhanced(model, test_loader, device)
-                current_test_mse = test_metrics['test/mse']
-                current_train_loss = train_metrics['train/recon_loss']
+                test_metrics = evaluate_model_single_neuron(model, test_loader, device)
                 
+                # Log all metrics
                 all_metrics = {
                     **train_metrics, 
                     **test_metrics, 
@@ -350,40 +371,49 @@ def main():
                 }
                 wandb.log(all_metrics)
                 
-                # ✅ Log codebook usage
-                if hasattr(model, 'get_codebook_usage'):
-                    usage_stats = model.get_codebook_usage()
-                    wandb.log({
-                        'codebook/usage_pct': usage_stats.get('usage_percentage', 0),
-                        'codebook/used_codes': usage_stats.get('used_codes', 0)
-                    })
-                
+                # Print progress
                 print(f"Epoch {epoch:3d} [{train_metrics['train/phase']}]:")
-                print(f"  Train Loss={current_train_loss:.6f}, VQ={train_metrics['train/vq_loss']:.6f}")
-                print(f"  Test MSE={current_test_mse:.6f}, R²={test_metrics['test/r_squared']:.4f}")
-                print(f"  Perplexity={train_metrics['train/perplexity']:.1f}")
-                print(f"  Perfect={test_metrics['test/perfect_neurons_pct']:.1f}%")
+                print(f"  Train Loss: {train_metrics['train/recon_loss']:.6f}")
+                print(f"  Test MSE: {test_metrics['test/mse']:.6f}")
+                print(f"  Test Corr: {test_metrics['test/correlation_mean']:.4f} ± {test_metrics['test/correlation_std']:.4f}")
+                print(f"  R²: {test_metrics['test/r_squared']:.4f}, SNR: {test_metrics['test/snr_db']:.1f} dB")
+                print(f"  Perplexity: {train_metrics['train/perplexity']:.1f}")
                 
+                # Visualize reconstructions
                 if epoch % 20 == 0:
                     model.eval()
                     with torch.no_grad():
-                        batch_data = next(iter(test_loader))
-                        sample_batch = batch_data.to(device) if not isinstance(batch_data, (list, tuple)) else batch_data[0].to(device)
-                        
+                        sample_batch = next(iter(test_loader)).to(device)
                         _, recon_sample, _, _, _ = model(sample_batch)
                         
-                        log_reconstructions_enhanced(
+                        img = visualize_single_neuron_reconstruction(
                             sample_batch.cpu().numpy(), 
                             recon_sample.cpu().numpy(),
                             epoch
                         )
+                        wandb.log({f"reconstructions/epoch_{epoch}": wandb.Image(img)})
                 
-                if current_train_loss < best_train_loss:
-                    best_train_loss = current_train_loss
+                # Check for improvement
+                current_test_corr = test_metrics['test/correlation_mean']
+                if current_test_corr > best_test_corr:
+                    best_test_corr = current_test_corr
                     patience_counter = 0
+                    
+                    # Save best model
+                    checkpoint = {
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'model_config': MODEL_CONFIG,
+                        'best_correlation': best_test_corr,
+                        'test_metrics': test_metrics
+                    }
+                    torch.save(checkpoint, './results/best_single_neuron_model.pth')
+                    print(f"  💾 Saved best model (corr={best_test_corr:.4f})")
                 else:
                     patience_counter += 1
                 
+                # Early stopping
                 if patience_counter >= wandb.config.patience:
                     print(f"Early stopping at epoch {epoch}")
                     break
@@ -392,42 +422,21 @@ def main():
         
         # Final evaluation
         print("\n🎯 FINAL EVALUATION:")
-        final_metrics = evaluate_model_enhanced(model, test_loader, device)
-        final_train_metrics = train_epoch_enhanced(
-            model, train_loader, optimizer, device,
-            epoch if 'epoch' in locals() else wandb.config.max_epochs - 1,
-            wandb.config
-        )
+        final_metrics = evaluate_model_single_neuron(model, test_loader, device)
         
-        print(f"Train Loss: {final_train_metrics['train/recon_loss']:.6f}")
         print(f"Test MSE: {final_metrics['test/mse']:.6f}")
+        print(f"Test Correlation: {final_metrics['test/correlation_mean']:.4f}")
         print(f"R²: {final_metrics['test/r_squared']:.4f}")
-        print(f"Perfect neurons: {final_metrics['test/perfect_neurons_pct']:.1f}%")
+        print(f"SNR: {final_metrics['test/snr_db']:.1f} dB")
         
         wandb.log({
-            'final/train_recon_loss': final_train_metrics['train/recon_loss'],
             'final/test_mse': final_metrics['test/mse'],
+            'final/correlation': final_metrics['test/correlation_mean'],
             'final/r_squared': final_metrics['test/r_squared'],
-            'final/perfect_neurons_pct': final_metrics['test/perfect_neurons_pct'],
+            'final/snr_db': final_metrics['test/snr_db'],
         })
         
-        # Save model
-        print("\n💾 Saving model...")
-        os.makedirs('./results', exist_ok=True)
-        
-        checkpoint = {
-            'epoch': epoch if 'epoch' in locals() else wandb.config.max_epochs,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'model_config': MODEL_CONFIG,
-            'dataset_info': dataset_info,
-            'training_sessions': TRAINING_SESSION_IDS,
-            'test_sessions': TEST_SESSION_IDS,
-            'final_metrics': final_metrics
-        }
-        
-        torch.save(checkpoint, './results/modello_1_neurone.pth')
-        print("✅ Model saved!")
+        print("\n✅ Training completed!")
         
     except Exception as e:
         print(f"❌ Error: {e}")
