@@ -209,10 +209,10 @@ def evaluate_model_single_neuron(model, dataloader, device):
     }
 
 def visualize_single_neuron_reconstruction(original, reconstructed, epoch):
-    """Specialized visualization for single neuron"""
+    """Specialized visualization for single neuron with PEAK-focused selection"""
     num_examples = min(4, original.shape[0])
     
-    fig, axes = plt.subplots(num_examples, 2, figsize=(15, 3*num_examples))
+    fig, axes = plt.subplots(num_examples, 3, figsize=(18, 3*num_examples))
     if num_examples == 1:
         axes = axes.reshape(1, -1)
     
@@ -223,33 +223,139 @@ def visualize_single_neuron_reconstruction(original, reconstructed, epoch):
         
         time_points = np.arange(len(orig_trace))
         
-        # Plot original vs reconstruction
-        axes[i, 0].plot(time_points, orig_trace, 'b-', label='Original', alpha=0.7)
-        axes[i, 0].plot(time_points, recon_trace, 'r-', label='Reconstruction', alpha=0.7)
+        # ✅ NUOVO: Calcola metriche basate su ampiezza/picchi
+        # Ampiezza assoluta (range dinamico)
+        amplitude = np.max(orig_trace) - np.min(orig_trace)
+        
+        # Numero e altezza dei picchi
+        mean_val = np.mean(orig_trace)
+        std_val = np.std(orig_trace)
+        threshold = mean_val + 2 * std_val  # Soglia per identificare picchi
+        
+        # Identifica picchi
+        peak_mask = orig_trace > threshold
+        num_peaks = np.sum(np.diff(peak_mask.astype(int)) == 1)  # Conta transizioni 0->1
+        
+        # Massimo valore assoluto (per catturare eventi estremi)
+        max_abs_value = np.max(np.abs(orig_trace))
+        
+        # Plot 1: Overlay con highlight dei picchi
+        axes[i, 0].plot(time_points, orig_trace, 'b-', label='Original', alpha=0.7, linewidth=1.5)
+        axes[i, 0].plot(time_points, recon_trace, 'r-', label='Reconstruction', alpha=0.7, linewidth=1.5)
+        
+        # ✅ NUOVO: Evidenzia zone dei picchi
+        axes[i, 0].fill_between(time_points, threshold, np.max(orig_trace), 
+                                alpha=0.1, color='yellow', label=f'Peak zone (>{threshold:.2f})')
+        
+        # ✅ NUOVO: Marca i picchi individuali
+        peak_indices = np.where(peak_mask)[0]
+        if len(peak_indices) > 0:
+            axes[i, 0].scatter(peak_indices, orig_trace[peak_indices], 
+                             color='blue', s=30, zorder=5, alpha=0.8, marker='^', label='Peaks (orig)')
+            axes[i, 0].scatter(peak_indices, recon_trace[peak_indices], 
+                             color='red', s=30, zorder=5, alpha=0.8, marker='v', label='Peaks (recon)')
+        
         axes[i, 0].set_xlabel('Time')
         axes[i, 0].set_ylabel('Activity')
-        axes[i, 0].set_title(f'Sample {i+1}: Overlay')
-        axes[i, 0].legend()
+        axes[i, 0].set_title(f'Sample {i+1}: Peaks={num_peaks}, Amp={amplitude:.2f}, Max={max_abs_value:.2f}')
+        axes[i, 0].legend(loc='upper right', fontsize=8)
         axes[i, 0].grid(True, alpha=0.3)
         
-        # Plot error
+        # Plot 2: Error con focus sui picchi
         error = np.abs(orig_trace - recon_trace)
-        axes[i, 1].plot(time_points, error, 'k-', alpha=0.7)
+        axes[i, 1].plot(time_points, error, 'k-', alpha=0.7, linewidth=1)
         axes[i, 1].fill_between(time_points, 0, error, alpha=0.3, color='red')
+        
+        # ✅ NUOVO: Evidenzia errore nelle zone dei picchi
+        peak_error = error.copy()
+        peak_error[~peak_mask] = 0
+        axes[i, 1].fill_between(time_points, 0, peak_error, alpha=0.6, color='darkred', 
+                               label=f'Peak error')
+        
         axes[i, 1].set_xlabel('Time')
         axes[i, 1].set_ylabel('Absolute Error')
-        axes[i, 1].set_title(f'Sample {i+1}: Error')
+        axes[i, 1].set_title(f'Sample {i+1}: Error (Peak err mean: {np.mean(error[peak_mask]):.3f})' if np.sum(peak_mask) > 0 else f'Sample {i+1}: Error (No peaks)')
+        axes[i, 1].legend(loc='upper right', fontsize=8)
         axes[i, 1].grid(True, alpha=0.3)
         
-        # Add correlation as text
+        # Plot 3: Zoom sui picchi più grandi
+        axes[i, 2].set_title(f'Sample {i+1}: Peak Reconstruction Quality')
+        
+        if len(peak_indices) > 0:
+            # Trova i 3 picchi più alti
+            peak_heights = orig_trace[peak_indices]
+            top_peak_idx = peak_indices[np.argsort(peak_heights)[-min(3, len(peak_indices)):]]
+            
+            # Crea zoom windows attorno ai top picchi
+            window_size = 5  # ±5 timesteps attorno al picco
+            
+            for j, peak_idx in enumerate(top_peak_idx):
+                start = max(0, peak_idx - window_size)
+                end = min(len(orig_trace), peak_idx + window_size + 1)
+                
+                local_time = np.arange(start, end)
+                
+                # Offset verticale per separare i picchi nel plot
+                offset = j * (amplitude * 0.4)
+                
+                axes[i, 2].plot(local_time - peak_idx, orig_trace[start:end] + offset, 
+                              'b.-', alpha=0.7, label=f'Peak {j+1} orig' if j == 0 else "")
+                axes[i, 2].plot(local_time - peak_idx, recon_trace[start:end] + offset, 
+                              'r.-', alpha=0.7, label=f'Peak {j+1} recon' if j == 0 else "")
+                
+                # Linea verticale al centro del picco
+                axes[i, 2].axvline(0, color='gray', linestyle='--', alpha=0.3)
+                
+                # Annotazione con l'errore del picco
+                peak_error_val = np.abs(orig_trace[peak_idx] - recon_trace[peak_idx])
+                axes[i, 2].text(0.5, orig_trace[peak_idx] + offset, 
+                              f'Err: {peak_error_val:.3f}',
+                              fontsize=8, ha='left', va='bottom')
+            
+            axes[i, 2].set_xlabel('Time (relative to peak)')
+            axes[i, 2].set_ylabel('Activity (stacked)')
+            axes[i, 2].legend(loc='upper right', fontsize=8)
+        else:
+            # Se non ci sono picchi significativi, mostra istogramma dei valori
+            axes[i, 2].hist(orig_trace, bins=20, alpha=0.5, color='blue', label='Original', density=True)
+            axes[i, 2].hist(recon_trace, bins=20, alpha=0.5, color='red', label='Reconstruction', density=True)
+            axes[i, 2].set_xlabel('Activity Value')
+            axes[i, 2].set_ylabel('Density')
+            axes[i, 2].legend()
+            axes[i, 2].set_title(f'Sample {i+1}: No significant peaks - Value distribution')
+        
+        axes[i, 2].grid(True, alpha=0.3)
+        
+        # ✅ NUOVO: Aggiungi metriche dettagliate sui picchi
         if np.std(orig_trace) > 1e-8 and np.std(recon_trace) > 1e-8:
             corr, _ = pearsonr(orig_trace, recon_trace)
-            axes[i, 1].text(0.02, 0.98, f'Corr: {corr:.3f}', 
-                          transform=axes[i, 1].transAxes, 
+            
+            # Correlazione solo sui picchi (se esistono abbastanza punti)
+            if np.sum(peak_mask) >= 2:  # pearsonr needs at least 2 points
+                peak_corr, _ = pearsonr(orig_trace[peak_mask], recon_trace[peak_mask])
+            else:
+                peak_corr = np.nan
+            
+            # Box con statistiche
+            stats_text = f'Overall Corr: {corr:.3f}\n'
+            if not np.isnan(peak_corr):
+                stats_text += f'Peak Corr: {peak_corr:.3f}\n'
+            elif np.sum(peak_mask) == 1:
+                stats_text += f'Peak Corr: N/A (1 point)\n'
+            else:
+                stats_text += f'Peak Corr: N/A (no peaks)\n'
+            stats_text += f'Amplitude: {amplitude:.2f}\n'
+            stats_text += f'Num Peaks: {num_peaks}\n'
+            stats_text += f'Max |value|: {max_abs_value:.2f}'
+            
+            axes[i, 2].text(0.02, 0.98, stats_text, 
+                          transform=axes[i, 2].transAxes, 
                           verticalalignment='top',
+                          fontsize=8,
                           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
-    plt.suptitle(f'Single Neuron Reconstructions - Epoch {epoch}', fontsize=14, fontweight='bold')
+    plt.suptitle(f'Single Neuron Reconstructions (Peak Analysis) - Epoch {epoch}', 
+                 fontsize=14, fontweight='bold')
     plt.tight_layout()
     
     # Convert to numpy array first, then to PIL Image
@@ -263,6 +369,64 @@ def visualize_single_neuron_reconstruction(original, reconstructed, epoch):
     
     return pil_image
 
+
+def compute_peak_focused_metrics(original, reconstructed):
+    """
+    Compute metrics specifically focused on peak reconstruction quality
+    """
+    metrics = {}
+    
+    # Flatten for overall metrics
+    orig_flat = original.flatten()
+    recon_flat = reconstructed.flatten()
+    
+    # Overall metrics
+    metrics['mse_overall'] = np.mean((orig_flat - recon_flat) ** 2)
+    metrics['mae_overall'] = np.mean(np.abs(orig_flat - recon_flat))
+    
+    # Peak-focused metrics
+    peak_metrics = []
+    amplitude_metrics = []
+    
+    for sample_idx in range(original.shape[0]):
+        orig_trace = original[sample_idx, 0, :]
+        recon_trace = reconstructed[sample_idx, 0, :]
+        
+        # Calculate amplitude
+        amplitude_orig = np.max(orig_trace) - np.min(orig_trace)
+        amplitude_recon = np.max(recon_trace) - np.min(recon_trace)
+        amplitude_error = np.abs(amplitude_orig - amplitude_recon)
+        amplitude_metrics.append(amplitude_error / (amplitude_orig + 1e-8))
+        
+        # Identify peaks (2 sigma above mean)
+        mean_val = np.mean(orig_trace)
+        std_val = np.std(orig_trace)
+        threshold = mean_val + 2 * std_val
+        
+        peak_mask = orig_trace > threshold
+        
+        if np.sum(peak_mask) > 0:
+            # MSE only on peaks
+            peak_mse = np.mean((orig_trace[peak_mask] - recon_trace[peak_mask]) ** 2)
+            peak_metrics.append(peak_mse)
+            
+            # Check if peaks are preserved in reconstruction
+            recon_peaks = recon_trace > threshold
+            peak_preservation = np.sum(peak_mask & recon_peaks) / np.sum(peak_mask)
+            metrics[f'sample_{sample_idx}_peak_preservation'] = peak_preservation
+    
+    # Aggregate peak metrics
+    if peak_metrics:
+        metrics['mse_peaks'] = np.mean(peak_metrics)
+        metrics['mse_peaks_std'] = np.std(peak_metrics)
+    else:
+        metrics['mse_peaks'] = np.nan
+        metrics['mse_peaks_std'] = np.nan
+    
+    metrics['amplitude_error_mean'] = np.mean(amplitude_metrics)
+    metrics['amplitude_error_std'] = np.std(amplitude_metrics)
+    
+    return metrics
 def main():
     # Initialize W&B
     wandb.init(
