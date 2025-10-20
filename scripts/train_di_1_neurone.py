@@ -210,22 +210,41 @@ def evaluate_model_single_neuron(model, dataloader, device):
 
 def visualize_single_neuron_reconstruction(original, reconstructed, epoch):
     """Specialized visualization for single neuron with PEAK-focused selection"""
-    num_examples = min(4, original.shape[0])
+    
+    # ✅ NUOVO: Seleziona i sample con AMPIEZZA MASSIMA
+    num_samples = original.shape[0]
+    
+    # Calcola ampiezza per ogni sample
+    amplitudes = []
+    for i in range(num_samples):
+        trace = original[i, 0, :]  # Single neuron trace
+        amplitude = np.max(trace) - np.min(trace)
+        amplitudes.append(amplitude)
+    
+    amplitudes = np.array(amplitudes)
+    
+    # Seleziona i top 4 sample con ampiezza maggiore
+    top_indices = np.argsort(amplitudes)[-4:][::-1]  # Top 4, ordinati dal più alto
+    
+    print(f"\n  📊 Visualizing samples with HIGHEST amplitude:")
+    for rank, idx in enumerate(top_indices, 1):
+        print(f"     Rank {rank}: Sample {idx}, Amplitude={amplitudes[idx]:.3f}")
+    
+    num_examples = len(top_indices)
     
     fig, axes = plt.subplots(num_examples, 3, figsize=(18, 3*num_examples))
     if num_examples == 1:
         axes = axes.reshape(1, -1)
     
-    for i in range(num_examples):
+    for plot_idx, sample_idx in enumerate(top_indices):
         # Get single neuron trace
-        orig_trace = original[i, 0, :]  # Shape: (time,)
-        recon_trace = reconstructed[i, 0, :]
+        orig_trace = original[sample_idx, 0, :]  # Shape: (time,)
+        recon_trace = reconstructed[sample_idx, 0, :]
         
         time_points = np.arange(len(orig_trace))
         
-        # ✅ NUOVO: Calcola metriche basate su ampiezza/picchi
-        # Ampiezza assoluta (range dinamico)
-        amplitude = np.max(orig_trace) - np.min(orig_trace)
+        # Calcola metriche basate su ampiezza/picchi
+        amplitude = amplitudes[sample_idx]  # ✅ Usa l'ampiezza già calcolata
         
         # Numero e altezza dei picchi
         mean_val = np.mean(orig_trace)
@@ -240,46 +259,46 @@ def visualize_single_neuron_reconstruction(original, reconstructed, epoch):
         max_abs_value = np.max(np.abs(orig_trace))
         
         # Plot 1: Overlay con highlight dei picchi
-        axes[i, 0].plot(time_points, orig_trace, 'b-', label='Original', alpha=0.7, linewidth=1.5)
-        axes[i, 0].plot(time_points, recon_trace, 'r-', label='Reconstruction', alpha=0.7, linewidth=1.5)
+        axes[plot_idx, 0].plot(time_points, orig_trace, 'b-', label='Original', alpha=0.7, linewidth=1.5)
+        axes[plot_idx, 0].plot(time_points, recon_trace, 'r-', label='Reconstruction', alpha=0.7, linewidth=1.5)
         
-        # ✅ NUOVO: Evidenzia zone dei picchi
-        axes[i, 0].fill_between(time_points, threshold, np.max(orig_trace), 
+        # Evidenzia zone dei picchi
+        axes[plot_idx, 0].fill_between(time_points, threshold, np.max(orig_trace), 
                                 alpha=0.1, color='yellow', label=f'Peak zone (>{threshold:.2f})')
         
-        # ✅ NUOVO: Marca i picchi individuali
+        # Marca i picchi individuali
         peak_indices = np.where(peak_mask)[0]
         if len(peak_indices) > 0:
-            axes[i, 0].scatter(peak_indices, orig_trace[peak_indices], 
+            axes[plot_idx, 0].scatter(peak_indices, orig_trace[peak_indices], 
                              color='blue', s=30, zorder=5, alpha=0.8, marker='^', label='Peaks (orig)')
-            axes[i, 0].scatter(peak_indices, recon_trace[peak_indices], 
+            axes[plot_idx, 0].scatter(peak_indices, recon_trace[peak_indices], 
                              color='red', s=30, zorder=5, alpha=0.8, marker='v', label='Peaks (recon)')
         
-        axes[i, 0].set_xlabel('Time')
-        axes[i, 0].set_ylabel('Activity')
-        axes[i, 0].set_title(f'Sample {i+1}: Peaks={num_peaks}, Amp={amplitude:.2f}, Max={max_abs_value:.2f}')
-        axes[i, 0].legend(loc='upper right', fontsize=8)
-        axes[i, 0].grid(True, alpha=0.3)
+        axes[plot_idx, 0].set_xlabel('Time')
+        axes[plot_idx, 0].set_ylabel('Activity')
+        axes[plot_idx, 0].set_title(f'Rank {plot_idx+1} (Sample {sample_idx}): Peaks={num_peaks}, Amp={amplitude:.2f}, Max={max_abs_value:.2f}')
+        axes[plot_idx, 0].legend(loc='upper right', fontsize=8)
+        axes[plot_idx, 0].grid(True, alpha=0.3)
         
         # Plot 2: Error con focus sui picchi
         error = np.abs(orig_trace - recon_trace)
-        axes[i, 1].plot(time_points, error, 'k-', alpha=0.7, linewidth=1)
-        axes[i, 1].fill_between(time_points, 0, error, alpha=0.3, color='red')
+        axes[plot_idx, 1].plot(time_points, error, 'k-', alpha=0.7, linewidth=1)
+        axes[plot_idx, 1].fill_between(time_points, 0, error, alpha=0.3, color='red')
         
-        # ✅ NUOVO: Evidenzia errore nelle zone dei picchi
+        # Evidenzia errore nelle zone dei picchi
         peak_error = error.copy()
         peak_error[~peak_mask] = 0
-        axes[i, 1].fill_between(time_points, 0, peak_error, alpha=0.6, color='darkred', 
+        axes[plot_idx, 1].fill_between(time_points, 0, peak_error, alpha=0.6, color='darkred', 
                                label=f'Peak error')
         
-        axes[i, 1].set_xlabel('Time')
-        axes[i, 1].set_ylabel('Absolute Error')
-        axes[i, 1].set_title(f'Sample {i+1}: Error (Peak err mean: {np.mean(error[peak_mask]):.3f})' if np.sum(peak_mask) > 0 else f'Sample {i+1}: Error (No peaks)')
-        axes[i, 1].legend(loc='upper right', fontsize=8)
-        axes[i, 1].grid(True, alpha=0.3)
+        axes[plot_idx, 1].set_xlabel('Time')
+        axes[plot_idx, 1].set_ylabel('Absolute Error')
+        axes[plot_idx, 1].set_title(f'Rank {plot_idx+1}: Error (Peak err mean: {np.mean(error[peak_mask]):.3f})' if np.sum(peak_mask) > 0 else f'Rank {plot_idx+1}: Error (No peaks)')
+        axes[plot_idx, 1].legend(loc='upper right', fontsize=8)
+        axes[plot_idx, 1].grid(True, alpha=0.3)
         
         # Plot 3: Zoom sui picchi più grandi
-        axes[i, 2].set_title(f'Sample {i+1}: Peak Reconstruction Quality')
+        axes[plot_idx, 2].set_title(f'Rank {plot_idx+1}: Peak Reconstruction Quality')
         
         if len(peak_indices) > 0:
             # Trova i 3 picchi più alti
@@ -298,35 +317,35 @@ def visualize_single_neuron_reconstruction(original, reconstructed, epoch):
                 # Offset verticale per separare i picchi nel plot
                 offset = j * (amplitude * 0.4)
                 
-                axes[i, 2].plot(local_time - peak_idx, orig_trace[start:end] + offset, 
+                axes[plot_idx, 2].plot(local_time - peak_idx, orig_trace[start:end] + offset, 
                               'b.-', alpha=0.7, label=f'Peak {j+1} orig' if j == 0 else "")
-                axes[i, 2].plot(local_time - peak_idx, recon_trace[start:end] + offset, 
+                axes[plot_idx, 2].plot(local_time - peak_idx, recon_trace[start:end] + offset, 
                               'r.-', alpha=0.7, label=f'Peak {j+1} recon' if j == 0 else "")
                 
                 # Linea verticale al centro del picco
-                axes[i, 2].axvline(0, color='gray', linestyle='--', alpha=0.3)
+                axes[plot_idx, 2].axvline(0, color='gray', linestyle='--', alpha=0.3)
                 
                 # Annotazione con l'errore del picco
                 peak_error_val = np.abs(orig_trace[peak_idx] - recon_trace[peak_idx])
-                axes[i, 2].text(0.5, orig_trace[peak_idx] + offset, 
+                axes[plot_idx, 2].text(0.5, orig_trace[peak_idx] + offset, 
                               f'Err: {peak_error_val:.3f}',
                               fontsize=8, ha='left', va='bottom')
             
-            axes[i, 2].set_xlabel('Time (relative to peak)')
-            axes[i, 2].set_ylabel('Activity (stacked)')
-            axes[i, 2].legend(loc='upper right', fontsize=8)
+            axes[plot_idx, 2].set_xlabel('Time (relative to peak)')
+            axes[plot_idx, 2].set_ylabel('Activity (stacked)')
+            axes[plot_idx, 2].legend(loc='upper right', fontsize=8)
         else:
             # Se non ci sono picchi significativi, mostra istogramma dei valori
-            axes[i, 2].hist(orig_trace, bins=20, alpha=0.5, color='blue', label='Original', density=True)
-            axes[i, 2].hist(recon_trace, bins=20, alpha=0.5, color='red', label='Reconstruction', density=True)
-            axes[i, 2].set_xlabel('Activity Value')
-            axes[i, 2].set_ylabel('Density')
-            axes[i, 2].legend()
-            axes[i, 2].set_title(f'Sample {i+1}: No significant peaks - Value distribution')
+            axes[plot_idx, 2].hist(orig_trace, bins=20, alpha=0.5, color='blue', label='Original', density=True)
+            axes[plot_idx, 2].hist(recon_trace, bins=20, alpha=0.5, color='red', label='Reconstruction', density=True)
+            axes[plot_idx, 2].set_xlabel('Activity Value')
+            axes[plot_idx, 2].set_ylabel('Density')
+            axes[plot_idx, 2].legend()
+            axes[plot_idx, 2].set_title(f'Rank {plot_idx+1}: No significant peaks - Value distribution')
         
-        axes[i, 2].grid(True, alpha=0.3)
+        axes[plot_idx, 2].grid(True, alpha=0.3)
         
-        # ✅ NUOVO: Aggiungi metriche dettagliate sui picchi
+        # Aggiungi metriche dettagliate sui picchi
         if np.std(orig_trace) > 1e-8 and np.std(recon_trace) > 1e-8:
             corr, _ = pearsonr(orig_trace, recon_trace)
             
@@ -348,13 +367,13 @@ def visualize_single_neuron_reconstruction(original, reconstructed, epoch):
             stats_text += f'Num Peaks: {num_peaks}\n'
             stats_text += f'Max |value|: {max_abs_value:.2f}'
             
-            axes[i, 2].text(0.02, 0.98, stats_text, 
-                          transform=axes[i, 2].transAxes, 
+            axes[plot_idx, 2].text(0.02, 0.98, stats_text, 
+                          transform=axes[plot_idx, 2].transAxes, 
                           verticalalignment='top',
                           fontsize=8,
                           bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
-    plt.suptitle(f'Single Neuron Reconstructions (Peak Analysis) - Epoch {epoch}', 
+    plt.suptitle(f'Single Neuron Reconstructions (TOP AMPLITUDE Samples) - Epoch {epoch}', 
                  fontsize=14, fontweight='bold')
     plt.tight_layout()
     
