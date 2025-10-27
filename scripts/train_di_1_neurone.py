@@ -32,10 +32,10 @@ MODEL_CONFIG = {
     'num_hiddens': 128,         # ← AUMENTATO (era 64)
     'num_residual_layers': 3,   # ← AUMENTATO (era 2)
     'num_residual_hiddens': 64, # ← AUMENTATO (era 32)
-    'num_embeddings': 32,       # ← AUMENTATO (era 16)
-    'embedding_dim': 32,        # ← AUMENTATO (era 16)
-    'commitment_cost': 0.25,    # ← RIDOTTO (era 1.0)
-    'dropout_rate': 0.1,        # ← AGGIUNTO dropout leggero
+    'num_embeddings': 2048,       # ← AUMENTATO (era 16)
+    'embedding_dim': 128,        # ← AUMENTATO per embeddings 256(era 32)
+    'commitment_cost': 0.5,    # ← aumentato per 256 (era 0.25), mentre per 1024 avevo prima 5.0 ora 0.5 e ho risultati molto diversi
+    'dropout_rate': 0.0,        # ← AGGIUNTO dropout leggero
     'use_quantizer': True,
 }
 
@@ -450,7 +450,7 @@ def main():
     # Initialize W&B
     wandb.init(
         project="calcium-vqvae-single-neuron",
-        name="single-neuron-fixed-architecture",
+        name="single-neuron-2048_pt2",
         config={
             "model_type": "CalciumVQVAE_SingleNeuron",
             "num_sessions_train": len(TRAINING_SESSION_IDS),
@@ -591,7 +591,7 @@ def main():
                         'best_correlation': best_test_corr,
                         'test_metrics': test_metrics
                     }
-                    torch.save(checkpoint, './results/best_single_neuron_model.pth')
+                    torch.save(checkpoint, './results/best_single_neuron_model_2048_pt2.pth')
                     print(f"  💾 Saved best model (corr={best_test_corr:.4f})")
                 else:
                     patience_counter += 1
