@@ -39,15 +39,15 @@ from datasets.calcium import create_unified_dataloaders, TRAINING_SESSION_IDS
 # CONFIGURAZIONE - MODIFICA QUI!
 # ============================================================================
 
-CHECKPOINT_PATH = "results/best_single_neuron_model_256.pth"
+CHECKPOINT_PATH = "results/best_single_neuron_model_128.pth"
 
 MODEL_CONFIG = {
     'num_neurons': 1,           
     'num_hiddens': 128,         
     'num_residual_layers': 3,   
     'num_residual_hiddens': 64, 
-    'num_embeddings': 256,
-    'embedding_dim': 64,
+    'num_embeddings': 128,
+    'embedding_dim': 32,
     'commitment_cost': 0.5,       
     'dropout_rate': 0.0,        
     'use_quantizer': True,

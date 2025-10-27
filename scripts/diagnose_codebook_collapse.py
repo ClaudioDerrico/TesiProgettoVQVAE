@@ -146,7 +146,7 @@ def diagnose_quantization(model, dataloader, device, num_batches):
     print(f"\n🔝 TOP 10 codici più usati:")
     for rank, (code_idx, count) in enumerate(most_common, 1):
         percentage = 100 * count / total_indices
-        print(f"   {rank:2d}. Codice {code_idx:4d}: {count:6d} volte ({percentage:5.2f}%)")
+        print(f"   {rank:2d}. Codice {int(code_idx):4d}: {int(count):6d} volte ({percentage:5.2f}%)")
     
     # ⚠️ DIAGNOSI COLLAPSE
     if num_unique_codes <= 5:
@@ -342,6 +342,102 @@ def diagnose_quantization(model, dataloader, device, num_batches):
         'issues': issues
     }
 
+def debug_quantization_step_by_step(model, dataloader, device):
+    """Debug dettagliato del processo di quantizzazione"""
+    
+    model.eval()
+    
+    with torch.no_grad():
+        # Prendi UN SOLO batch
+        batch_data = next(iter(dataloader))
+        neural_data = batch_data.to(device)
+        
+        print("\n" + "="*70)
+        print("🔬 DEBUG STEP-BY-STEP QUANTIZATION")
+        print("="*70)
+        
+        # 1. Encoder output
+        z = model.encoder(neural_data)
+        z = model.pre_quantization_conv(z)
+        
+        print(f"\n1️⃣ Encoder output (z):")
+        print(f"   Shape: {z.shape}")
+        print(f"   Min: {z.min().item():.4f}, Max: {z.max().item():.4f}")
+        print(f"   Mean: {z.mean().item():.4f}, Std: {z.std().item():.4f}")
+        
+        # 2. Flatten per quantizzazione
+        if z.dim() == 3:  # (B, C, T)
+            flat_input = z.permute(0, 2, 1).contiguous().view(-1, z.shape[1])
+        else:
+            flat_input = z.permute(0, 2, 3, 1).contiguous().view(-1, z.shape[1])
+        
+        print(f"\n2️⃣ Flattened input:")
+        print(f"   Shape: {flat_input.shape}")
+        print(f"   Min: {flat_input.min().item():.4f}, Max: {flat_input.max().item():.4f}")
+        
+        # 3. Codebook embeddings
+        codebook = model.vector_quantization.embedding.weight
+        
+        print(f"\n3️⃣ Codebook embeddings:")
+        print(f"   Shape: {codebook.shape}")
+        print(f"   Min: {codebook.min().item():.4f}, Max: {codebook.max().item():.4f}")
+        print(f"   Mean: {codebook.mean().item():.4f}, Std: {codebook.std().item():.4f}")
+        
+        # 4. Calcola distanze MANUALMENTE
+        print(f"\n4️⃣ Calcolo distanze:")
+        
+        # Prendi solo i primi 10 input per debug
+        sample_input = flat_input[:10]
+        
+        # Distanze L2: ||z - e||^2 = ||z||^2 + ||e||^2 - 2*z*e
+        input_norm = torch.sum(sample_input**2, dim=1, keepdim=True)
+        codebook_norm = torch.sum(codebook**2, dim=1)
+        dot_product = torch.matmul(sample_input, codebook.t())
+        
+        distances = input_norm + codebook_norm - 2 * dot_product
+        
+        print(f"   Input norm: {input_norm[:5].flatten()}")
+        print(f"   Codebook norm (first 10): {codebook_norm[:10]}")
+        print(f"   Distances shape: {distances.shape}")
+        print(f"   Distances min: {distances.min().item():.4f}")
+        print(f"   Distances max: {distances.max().item():.4f}")
+        
+        # 5. Trova codici più vicini
+        closest_codes = torch.argmin(distances, dim=1)
+        
+        print(f"\n5️⃣ Codici selezionati (primi 10 input):")
+        print(f"   {closest_codes.cpu().numpy()}")
+        
+        # 6. Distribuzione completa
+        encoding_indices = torch.argmin(
+            torch.sum(flat_input**2, dim=1, keepdim=True) 
+            + torch.sum(codebook**2, dim=1)
+            - 2 * torch.matmul(flat_input, codebook.t()),
+            dim=1
+        )
+        
+        unique, counts = torch.unique(encoding_indices, return_counts=True)
+        
+        print(f"\n6️⃣ Distribuzione codici (batch completo):")
+        print(f"   Codici unici: {len(unique)}")
+        for code, count in zip(unique.cpu().numpy(), counts.cpu().numpy()):
+            pct = 100 * count / len(encoding_indices)
+            print(f"      Codice {code}: {count} volte ({pct:.2f}%)")
+        
+        # 7. Verifica se il problema è nel FORWARD del modello
+        print(f"\n7️⃣ Test FORWARD completo del modello:")
+        vq_loss, recon, perplexity, encodings, model_encoding_indices = model(neural_data)
+        
+        if model_encoding_indices is not None:
+            model_unique, model_counts = torch.unique(model_encoding_indices, return_counts=True)
+            print(f"   Codici unici dal model forward: {len(model_unique)}")
+            for code, count in zip(model_unique.cpu().numpy(), model_counts.cpu().numpy()):
+                pct = 100 * count / len(model_encoding_indices.flatten())
+                print(f"      Codice {code}: {count} volte ({pct:.2f}%)")
+        
+        print("\n" + "="*70)
+
+
 
 # ============================================================================
 # MAIN
@@ -372,7 +468,9 @@ def main():
             num_workers=0,
             use_cross_session_test=False
         )
-        
+
+        debug_quantization_step_by_step(model, train_loader, device)
+
         # DIAGNOSI
         results = diagnose_quantization(model, train_loader, device, NUM_BATCHES_TO_TEST)
         
