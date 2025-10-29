@@ -1,0 +1,26 @@
+{
+  "model_config": {
+  "num_neurons": 1,
+  "num_hiddens": 128,
+  "num_residual_layers": 3,
+  "num_residual_hiddens": 64,
+  "num_embeddings": 2048,
+  "embedding_dim": 128,
+  "commitment_cost": 0.25,
+  "dropout_rate": 0.1,
+  "use_quantizer": true
+},
+  "session_results": [
+    {"session_id": 501559087, "mse_mean": 0.001522, "corr_mean": 0.9415, "samples": 2277},
+    {"session_id": 501498760, "mse_mean": 0.000331, "corr_mean": 0.9303, "samples": 2282},
+    {"session_id": 501836392, "mse_mean": 0.000331, "corr_mean": 0.9289, "samples": 2315},
+
+    {"session_id": 501474098, "mse_mean": 0.000542, "corr_mean": 0.9348, "samples": 2114},
+    {"session_id": 663488086, "mse_mean": 0.000283, "corr_mean": 0.9259, "samples": 2348},
+    {"session_id": 647593956, "mse_mean": 0.000588, "corr_mean": 0.9326, "samples": 2486},
+
+    {"session_id": 627823723, "mse_mean": 0.000382, "corr_mean": 0.9297, "samples": 2481},
+    {"session_id": 569494121, "mse_mean": 0.001304, "corr_mean": 0.9217, "samples": 2486},
+    {"session_id": 566523247, "mse_mean": 0.000362, "corr_mean": 0.9286, "samples": 2486}
+  ]
+}

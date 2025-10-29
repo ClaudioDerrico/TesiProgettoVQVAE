@@ -1,0 +1,28 @@
+{
+  "model_config": {
+    "num_neurons": 1,
+    "num_hiddens": 128,
+    "num_residual_layers": 3,
+    "num_residual_hiddens": 64,
+    "num_embeddings": 64,
+    "embedding_dim": 32,
+    "commitment_cost": 0.25,
+    "dropout_rate": 0.1,
+    "use_quantizer": true
+  },
+  "session_results": {
+  "sessions": [
+    { "id": 501559087, "mse_mean": 0.003078, "corr_mean": 0.8928, "samples": 2277 },
+    { "id": 501498760, "mse_mean": 0.000598, "corr_mean": 0.8732, "samples": 2282 },
+    { "id": 501836392, "mse_mean": 0.000593, "corr_mean": 0.8747, "samples": 2315 },
+
+    { "id": 501474098, "mse_mean": 0.001146, "corr_mean": 0.8836, "samples": 2114 },
+    { "id": 663488086, "mse_mean": 0.000509, "corr_mean": 0.8709, "samples": 2348 },
+    { "id": 647593956, "mse_mean": 0.001200, "corr_mean": 0.8728, "samples": 2486 },
+    
+    { "id": 627823723, "mse_mean": 0.000717, "corr_mean": 0.8691, "samples": 2481 },
+    { "id": 569494121, "mse_mean": 0.002425, "corr_mean": 0.8598, "samples": 2486 },
+    { "id": 566523247, "mse_mean": 0.000661, "corr_mean": 0.8673, "samples": 2486 }
+  ]
+}
+}
