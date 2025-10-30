@@ -28,14 +28,14 @@ from datasets.calcium import TEST_SESSION_IDS
 # CONFIGURAZIONE - MODIFICA QUI
 # ============================================================================
 
-CHECKPOINT_PATH = "results/best_single_neuron_model_2048.pth"  # ✅ MODIFICA QUESTO
+CHECKPOINT_PATH = "results/best_single_neuron_model_512_pt2.pth"  # ✅ MODIFICA QUESTO
 
 MODEL_CONFIG = {
     'num_neurons': 1,
     'num_hiddens': 128,
     'num_residual_layers': 3,
     'num_residual_hiddens': 64,
-    'num_embeddings': 2048, 
+    'num_embeddings': 512,
     'embedding_dim': 128,
     'commitment_cost': 0.25,
     'dropout_rate': 0.1,
