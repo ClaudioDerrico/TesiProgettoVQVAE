@@ -1,0 +1,153 @@
+{
+  "metadata": {
+    "checkpoint_path": "results/best_single_neuron_model_16.pth",
+    "dataset_analyzed": "train",
+    "model_config": {
+      "num_neurons": 1,
+      "num_hiddens": 128,
+      "num_residual_layers": 3,
+      "num_residual_hiddens": 64,
+      "num_embeddings": 16,
+      "embedding_dim": 32,
+      "commitment_cost": 0.25,
+      "dropout_rate": 0.1,
+      "use_quantizer": true
+    }
+  },
+  "results": {
+    "train": {
+      "num_embeddings": 16,
+      "used_codes": 16,
+      "usage_percentage": 100.0,
+      "unused_codes": [],
+      "total_encodings": 347205,
+      "samples_processed": 23147,
+      "code_usage": {
+        "8": 49852,
+        "10": 83333,
+        "15": 3102,
+        "12": 5644,
+        "9": 19428,
+        "6": 8843,
+        "7": 9228,
+        "3": 8398,
+        "5": 116763,
+        "0": 15152,
+        "13": 4187,
+        "2": 7972,
+        "14": 12301,
+        "11": 1353,
+        "4": 1084,
+        "1": 565
+      },
+      "top_10_codes": [
+        {
+          "code_index": 5,
+          "count": 116763
+        },
+        {
+          "code_index": 10,
+          "count": 83333
+        },
+        {
+          "code_index": 8,
+          "count": 49852
+        },
+        {
+          "code_index": 9,
+          "count": 19428
+        },
+        {
+          "code_index": 0,
+          "count": 15152
+        },
+        {
+          "code_index": 14,
+          "count": 12301
+        },
+        {
+          "code_index": 7,
+          "count": 9228
+        },
+        {
+          "code_index": 6,
+          "count": 8843
+        },
+        {
+          "code_index": 3,
+          "count": 8398
+        },
+        {
+          "code_index": 2,
+          "count": 7972
+        }
+      ],
+      "code_frequencies": {
+        "0": {
+          "count": 15152,
+          "percentage": 4.36399245402572
+        },
+        "1": {
+          "count": 565,
+          "percentage": 0.1627280713123371
+        },
+        "2": {
+          "count": 7972,
+          "percentage": 2.29604988407425
+        },
+        "3": {
+          "count": 8398,
+          "percentage": 2.4187439697008974
+        },
+        "4": {
+          "count": 1084,
+          "percentage": 0.31220748549128036
+        },
+        "5": {
+          "count": 116763,
+          "percentage": 33.629412018836135
+        },
+        "6": {
+          "count": 8843,
+          "percentage": 2.546910326752207
+        },
+        "7": {
+          "count": 9228,
+          "percentage": 2.657795826673003
+        },
+        "8": {
+          "count": 49852,
+          "percentage": 14.358088161172795
+        },
+        "9": {
+          "count": 19428,
+          "percentage": 5.595541538860328
+        },
+        "10": {
+          "count": 83333,
+          "percentage": 24.00109445428493
+        },
+        "11": {
+          "count": 1353,
+          "percentage": 0.38968332829308333
+        },
+        "12": {
+          "count": 5644,
+          "percentage": 1.6255526274103194
+        },
+        "13": {
+          "count": 4187,
+          "percentage": 1.205915813424346
+        },
+        "14": {
+          "count": 12301,
+          "percentage": 3.5428637260408116
+        },
+        "15": {
+          "count": 3102,
+          "percentage": 0.8934203136475569
+        }
+      }
+    }
+  }
+}
