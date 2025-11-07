@@ -57,7 +57,7 @@ CHECKPOINT_PATH = "results/best_single_neuron_model_32.pth"
 
 # W&B Configuration
 WANDB_PROJECT = "calcium-vqvae-codebook-umap-analysis"
-WANDB_RUN_NAME = f"umap-analysis-32codes"
+WANDB_RUN_NAME = f"umap-analysis-32codes-3.0"
 
 MODEL_CONFIG = {
     'num_neurons': 1,
@@ -66,7 +66,7 @@ MODEL_CONFIG = {
     'num_residual_hiddens': 64,
     'num_embeddings': 32,
     'embedding_dim': 32,
-    'commitment_cost': 0.25,
+    'commitment_cost': 3.0,
     'dropout_rate': 0.1,
     'use_quantizer': True,
 }
@@ -614,6 +614,34 @@ def plot_umap_with_connections(umap_coords, embeddings, k=3):
     
     return fig
 
+def plot_hierarchical_clustering(embeddings, similarity_matrix):
+    """
+    Clustering gerarchico con trasformazione sqrt per bilanciare altezze
+    """
+    distance_matrix = 1 - similarity_matrix
+    
+    # ✅ APPLICA SQRT per comprimere il range (meno aggressivo del log)
+    distance_matrix_sqrt = np.sqrt(distance_matrix)
+    
+    condensed_dist = squareform(distance_matrix_sqrt, checks=False)
+    
+    linkage_matrix = linkage(condensed_dist, method='ward')
+    
+    fig, ax = plt.subplots(figsize=(14, 6))
+    
+    dendrogram(linkage_matrix, ax=ax,
+               labels=list(range(embeddings.shape[0])),
+               leaf_font_size=10)
+    
+    ax.set_xlabel('Code Index', fontsize=12)
+    ax.set_ylabel('Distance (sqrt-transformed)', fontsize=12)
+    ax.set_title('Hierarchical Clustering of Codebook (Ward + Sqrt Transform)', 
+                 fontsize=14, fontweight='bold')
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    
+    return fig
 
 def main():
     print("="*70)
@@ -700,8 +728,20 @@ def main():
         fig_umap_3d = plot_umap_3d_visualization(umap_coords_3d, characteristics)
         wandb.log({"umap/3d_visualization": wandb.Image(fig_umap_3d)})
         plt.close(fig_umap_3d)
+
+        # 7. Hierarchical clustering (come in PCA e t-SNE)
+        print("\n" + "="*70)
+        print("🌳 HIERARCHICAL CLUSTERING")
+        print("="*70)
         
-        # 7. Confronto UMAP vs PCA vs t-SNE
+        # Calcola similarity matrix sugli embeddings
+        similarity_embeddings = cosine_similarity(embeddings)
+        
+        fig_cluster = plot_hierarchical_clustering(embeddings, similarity_embeddings)
+        wandb.log({"clustering/dendrogram": wandb.Image(fig_cluster)})
+        plt.close(fig_cluster)
+
+        # 8. Confronto UMAP vs PCA vs t-SNE
         print("\n" + "="*70)
         print("🔬 CONFRONTO: UMAP vs PCA vs t-SNE")
         print("="*70)
@@ -711,7 +751,7 @@ def main():
         wandb.log({"comparison/umap_vs_pca_vs_tsne": wandb.Image(fig_comparison)})
         plt.close(fig_comparison)
         
-        # 8. Clustering su UMAP
+        # 9. Clustering su UMAP
         print("\n" + "="*70)
         print("🔍 CLUSTERING SU SPAZIO UMAP")
         print("="*70)
@@ -729,7 +769,7 @@ def main():
                 f"clusters/cluster_{cluster_id}_codes": str(info['codes'])
             })
         
-        # 9. UMAP con connessioni k-NN
+        # 10. UMAP con connessioni k-NN
         print("\n" + "="*70)
         print("🔗 UMAP CON NEAREST NEIGHBOR CONNECTIONS")
         print("="*70)
@@ -737,7 +777,7 @@ def main():
         wandb.log({"umap/knn_connections": wandb.Image(fig_knn)})
         plt.close(fig_knn)
         
-        # 10. Metriche aggregate
+        # 11. Metriche aggregate
         print("\n📊 Loggando metriche aggregate...")
         
         # Calcola similarità media nello spazio UMAP vs embedding originale

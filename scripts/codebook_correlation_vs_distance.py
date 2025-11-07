@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-Analisi Correlazione vs Distanza dal Codice Base 0
+Analisi Correlazione vs Distanza dal Codice Base 0 (WANDB ONLY VERSION)
 
-Ordina tutti gli altri codici per distanza crescente dal codice 0
-e visualizza come temporal/spectral correlation decadono con la distanza.
+✨ MODIFICHE:
+- Rimossi TUTTI i salvataggi locali (save_dir, savefig)
+- SOLO upload su W&B
+- Figure create in memoria e caricate direttamente su wandb
+- Più pulito e cloud-first
 
 Uso:
-    python codebook_correlation_vs_distance_code0.py
+    python codebook_correlation_vs_distance_WANDB_ONLY.py
 """
 
 import sys
@@ -20,8 +23,9 @@ import seaborn as sns
 import wandb
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
-from scipy.stats import pearsonr
-from pathlib import Path
+from scipy.stats import pearsonr, spearmanr, kendalltau, sem
+from io import BytesIO
+from PIL import Image
 
 from models.vqvae import CalciumVQVAE
 
@@ -33,7 +37,7 @@ CHECKPOINT_PATH = "results/best_single_neuron_model_32.pth"
 
 # W&B Configuration
 WANDB_PROJECT = "calcium-vqvae-correlation-vs-distance"
-WANDB_RUN_NAME = f"code0-corr-vs-dist-{datetime.now().strftime('%m%d-%H%M')}"
+WANDB_RUN_NAME = f"single_neuron_model_32_2.0"
 
 MODEL_CONFIG = {
     'num_neurons': 1,
@@ -42,18 +46,18 @@ MODEL_CONFIG = {
     'num_residual_hiddens': 64,
     'num_embeddings': 32,
     'embedding_dim': 32,
-    'commitment_cost': 0.25,
+    'commitment_cost': 2.0,
     'dropout_rate': 0.1,
     'use_quantizer': True,
 }
 
 # Parametri
 TEMPORAL_LENGTH = 15
-BASE_CODE = 0  # ✅ Analizziamo solo il codice 0
-SAVE_DIR = Path("correlation_vs_distance_code0")
+BASE_CODE = 1
+BATCH_SIZE = 8
 
 # ============================================================================
-# FUNZIONI
+# FUNZIONI - CARICAMENTO MODELLO
 # ============================================================================
 
 def load_model(checkpoint_path, config, device):
@@ -93,145 +97,184 @@ def extract_codebook_embeddings(model):
     print(f"✅ Codebook embeddings estratti: {embeddings.shape}")
     return embeddings
 
+# ============================================================================
+# FUNZIONI - DECODIFICA
+# ============================================================================
 
 def decode_code(model, code_idx, device, temporal_length):
-    """
-    Decodifica un singolo codice
-    
-    Returns:
-        trace: (output_time,) - traccia temporale del neurone
-    """
+    """Decodifica un singolo codice"""
     code_embedding = model.vector_quantization.embedding.weight[code_idx]
-    
-    # Ripeti per temporal_length
     sequence = code_embedding.unsqueeze(1).repeat(1, temporal_length)
     sequence = sequence.unsqueeze(0).to(device)
     
-    # Decodifica
     with torch.no_grad():
         reconstruction = model.decode(sequence)
     
-    trace = reconstruction.cpu().numpy()[0, 0, :]  # (output_time,)
-    
+    trace = reconstruction.cpu().numpy()[0, 0, :]
     return trace
 
 
+def decode_codes_batch(model, code_indices, device, temporal_length, batch_size=8):
+    """Decodifica multipli codici in batch"""
+    all_traces = []
+    num_codes = len(code_indices)
+    
+    model.eval()
+    with torch.no_grad():
+        for i in range(0, num_codes, batch_size):
+            batch_indices = code_indices[i:i+batch_size]
+            batch_embeddings = model.vector_quantization.embedding.weight[batch_indices]
+            batch_sequences = batch_embeddings.unsqueeze(2).repeat(1, 1, temporal_length)
+            batch_sequences = batch_sequences.to(device)
+            
+            reconstructions = model.decode(batch_sequences)
+            all_traces.append(reconstructions.cpu().numpy()[:, 0, :])
+    
+    return np.concatenate(all_traces, axis=0)
+
+# ============================================================================
+# FUNZIONI - ANALISI SPETTRALE
+# ============================================================================
+
 def compute_fft_spectrum(trace, sample_rate=1.0):
-    """
-    Calcola lo spettro di frequenza usando FFT
-    
-    Returns:
-        freqs: array delle frequenze (Hz)
-        power: spettro di potenza (magnitudine al quadrato)
-    """
+    """Calcola lo spettro di frequenza usando FFT"""
     n = len(trace)
-    
-    # Rimuovi la componente DC (media)
     trace_centered = trace - np.mean(trace)
-    
-    # FFT
     fft_vals = np.fft.fft(trace_centered)
-    
-    # Frequenze corrispondenti (solo metà positiva)
     freqs = np.fft.fftfreq(n, d=1.0/sample_rate)
     
-    # Solo frequenze positive
     positive_freq_idx = freqs >= 0
     freqs_positive = freqs[positive_freq_idx]
     fft_positive = fft_vals[positive_freq_idx]
-    
-    # Potenza
     power = np.abs(fft_positive) ** 2
     
     return freqs_positive, power
 
+# ============================================================================
+# FUNZIONI - CORRELAZIONI
+# ============================================================================
 
 def compute_temporal_correlation(trace_a, trace_b):
-    """Calcola la correlazione temporale tra due tracce"""
-    if np.std(trace_a) > 1e-8 and np.std(trace_b) > 1e-8:
-        corr, _ = pearsonr(trace_a, trace_b)
-        if np.isnan(corr):
+    """Calcola correlazione temporale con handling robusto"""
+    std_a = np.std(trace_a)
+    std_b = np.std(trace_b)
+    
+    if std_a < 1e-8 or std_b < 1e-8:
+        if np.allclose(trace_a, trace_b, atol=1e-8):
+            return 1.0
+        elif std_a < 1e-8 and std_b < 1e-8:
             return 0.0
-        return corr
-    return 0.0
+        else:
+            return np.nan
+    
+    try:
+        corr, _ = pearsonr(trace_a, trace_b)
+        return corr if not np.isnan(corr) else np.nan
+    except:
+        return np.nan
 
 
 def compute_spectral_correlation(trace_a, trace_b):
-    """Calcola la correlazione spettrale tra due tracce"""
-    # Calcola spettri
+    """Calcola correlazione spettrale con handling robusto"""
     freqs_a, power_a = compute_fft_spectrum(trace_a)
     freqs_b, power_b = compute_fft_spectrum(trace_b)
     
-    # Normalizza power
     power_a_norm = power_a / (np.sum(power_a) + 1e-8)
     power_b_norm = power_b / (np.sum(power_b) + 1e-8)
     
-    # Correlazione tra spettri
     if len(power_a_norm) > 1 and np.std(power_a_norm) > 1e-8 and np.std(power_b_norm) > 1e-8:
-        corr, _ = pearsonr(power_a_norm, power_b_norm)
-        if np.isnan(corr):
-            return 0.0
-        return corr
-    return 0.0
+        try:
+            corr, _ = pearsonr(power_a_norm, power_b_norm)
+            return corr if not np.isnan(corr) else np.nan
+        except:
+            return np.nan
+    return np.nan
 
+# ============================================================================
+# FUNZIONI - TEST STATISTICI
+# ============================================================================
 
-def analyze_code0_correlations_vs_distance(model, embeddings, device, temporal_length):
-    """
-    Analizza come temporal e spectral correlation variano con la distanza
-    dal codice 0.
+def compute_correlation_metrics(x, y):
+    """Calcola multiple correlation metrics"""
+    valid_mask = ~(np.isnan(x) | np.isnan(y))
+    x_valid = x[valid_mask]
+    y_valid = y[valid_mask]
     
-    Returns:
-        dict con:
-            - distances: array delle distanze dal codice 0
-            - temporal_correlations: correlazioni temporali
-            - spectral_correlations: correlazioni spettrali
-            - code_indices: indici dei codici ordinati per distanza
-            - base_trace: traccia del codice 0
-    """
+    if len(x_valid) < 3:
+        return {
+            'pearson_r': np.nan, 'pearson_p': np.nan,
+            'spearman_r': np.nan, 'spearman_p': np.nan,
+            'kendall_tau': np.nan, 'kendall_p': np.nan,
+            'n_valid': len(x_valid)
+        }
+    
+    try:
+        pearson_r, pearson_p = pearsonr(x_valid, y_valid)
+    except:
+        pearson_r, pearson_p = np.nan, np.nan
+    
+    try:
+        spearman_r, spearman_p = spearmanr(x_valid, y_valid)
+    except:
+        spearman_r, spearman_p = np.nan, np.nan
+    
+    try:
+        kendall_tau, kendall_p = kendalltau(x_valid, y_valid)
+    except:
+        kendall_tau, kendall_p = np.nan, np.nan
+    
+    return {
+        'pearson_r': pearson_r,
+        'pearson_p': pearson_p,
+        'spearman_r': spearman_r,
+        'spearman_p': spearman_p,
+        'kendall_tau': kendall_tau,
+        'kendall_p': kendall_p,
+        'n_valid': len(x_valid)
+    }
+
+# ============================================================================
+# FUNZIONI - ANALISI PRINCIPALE
+# ============================================================================
+
+def analyze_code0_correlations_vs_distance(model, embeddings, device, temporal_length, batch_size=8):
+    """Analizza correlazioni vs distanza con batch decoding"""
     
     num_codes = embeddings.shape[0]
-    base_code_idx = 0
+    base_code_idx = 1
     
-    # Decodifica il codice 0
-    print(f"   🔵 Decodificando codice base 0...")
+    print(f"   🔵 Decodificando codice base 1...")
     base_trace = decode_code(model, base_code_idx, device, temporal_length)
     
-    # Calcola distanze dal codice 0
-    base_embedding = embeddings[base_code_idx:base_code_idx+1]  # (1, embedding_dim)
+    base_embedding = embeddings[base_code_idx:base_code_idx+1]
     similarity_to_base = cosine_similarity(embeddings, base_embedding).flatten()
     distances_to_base = 1 - similarity_to_base
     
-    # Ordina codici per distanza crescente (escludi il codice 0 stesso)
     code_indices = np.arange(num_codes)
-    mask = code_indices != base_code_idx  # Escludi codice 0
+    mask = code_indices != base_code_idx
     
     other_codes = code_indices[mask]
     other_distances = distances_to_base[mask]
     
-    # Ordina per distanza crescente
     sorted_indices = np.argsort(other_distances)
     sorted_codes = other_codes[sorted_indices]
     sorted_distances = other_distances[sorted_indices]
     
-    # Calcola correlazioni per ogni codice
+    print(f"   📊 Decodificando {len(sorted_codes)} codici in batch (batch_size={batch_size})...")
+    all_traces = decode_codes_batch(model, sorted_codes, device, temporal_length, batch_size=batch_size)
+    
     temporal_correlations = []
     spectral_correlations = []
     
     print(f"   📊 Calcolando correlazioni per {len(sorted_codes)} codici...")
     
-    for idx, code_idx in enumerate(sorted_codes):
-        # Progress ogni 10 codici
+    for idx, trace in enumerate(all_traces):
         if (idx + 1) % 10 == 0:
             print(f"      Processati {idx + 1}/{len(sorted_codes)} codici...")
         
-        # Decodifica
-        trace = decode_code(model, code_idx, device, temporal_length)
-        
-        # Temporal correlation
         temp_corr = compute_temporal_correlation(base_trace, trace)
         temporal_correlations.append(temp_corr)
         
-        # Spectral correlation
         spec_corr = compute_spectral_correlation(base_trace, trace)
         spectral_correlations.append(spec_corr)
     
@@ -239,326 +282,346 @@ def analyze_code0_correlations_vs_distance(model, embeddings, device, temporal_l
     
     return {
         'base_code': base_code_idx,
-        'code_indices': sorted_codes,
-        'distances': sorted_distances,
-        'temporal_correlations': np.array(temporal_correlations),
-        'spectral_correlations': np.array(spectral_correlations),
+        'code_indices': np.concatenate([[base_code_idx], sorted_codes]),
+        'distances': np.concatenate([[0.0], sorted_distances]),
+        'temporal_correlations': np.concatenate([[1.0], np.array(temporal_correlations)]),
+        'spectral_correlations': np.concatenate([[1.0], np.array(spectral_correlations)]),
         'base_trace': base_trace
     }
 
+# ============================================================================
+# FUNZIONI - STATISTICHE DESCRITTIVE
+# ============================================================================
 
-def visualize_code0_correlation_vs_distance(results, save_dir):
-    """
-    Visualizza come temporal/spectral correlation variano con la distanza
-    dal codice 0.
-    """
+def print_correlation_statistics(results):
+    """Stampa statistiche descrittive dettagliate"""
+    temp_corr = results['temporal_correlations']
+    spec_corr = results['spectral_correlations']
+    distances = results['distances']
     
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
+    temp_valid = temp_corr[~np.isnan(temp_corr)]
+    spec_valid = spec_corr[~np.isnan(spec_corr)]
+    
+    print(f"\n{'='*70}")
+    print("📊 STATISTICHE CORRELAZIONI DETTAGLIATE")
+    print(f"{'='*70}")
+    
+    print(f"\n🔵 TEMPORAL:")
+    print(f"   Valid samples: {len(temp_valid)}/{len(temp_corr)}")
+    print(f"   High similarity (>0.9): {np.sum(temp_valid > 0.9)} codici ({100*np.sum(temp_valid > 0.9)/len(temp_valid):.1f}%)")
+    print(f"   Medium similarity (0.5-0.9): {np.sum((temp_valid >= 0.5) & (temp_valid <= 0.9))} codici")
+    print(f"   Low similarity (0-0.5): {np.sum((temp_valid >= 0) & (temp_valid < 0.5))} codici")
+    print(f"   Uncorrelated (~0): {np.sum((temp_valid >= -0.1) & (temp_valid <= 0.1))} codici")
+    print(f"   Anticorrelated (<0): {np.sum(temp_valid < 0)} codici ({100*np.sum(temp_valid < 0)/len(temp_valid):.1f}%)")
+    print(f"   Strong anticorrelation (<-0.5): {np.sum(temp_valid < -0.5)} codici")
+    
+    print(f"\n🟣 SPECTRAL:")
+    print(f"   Valid samples: {len(spec_valid)}/{len(spec_corr)}")
+    print(f"   Near-identical (>0.95): {np.sum(spec_valid > 0.95)} codici ({100*np.sum(spec_valid > 0.95)/len(spec_valid):.1f}%)")
+    print(f"   High similarity (0.8-0.95): {np.sum((spec_valid >= 0.8) & (spec_valid <= 0.95))} codici")
+    print(f"   Medium similarity (0.5-0.8): {np.sum((spec_valid >= 0.5) & (spec_valid < 0.8))} codici")
+    print(f"   Low similarity (<0.5): {np.sum(spec_valid < 0.5)} codici ({100*np.sum(spec_valid < 0.5)/len(spec_valid):.1f}%)")
+    
+    print(f"\n🟢 DISTANCES:")
+    print(f"   Very close (<0.3): {np.sum(distances < 0.3)} codici")
+    print(f"   Close (0.3-0.6): {np.sum((distances >= 0.3) & (distances < 0.6))} codici")
+    print(f"   Far (0.6-1.0): {np.sum((distances >= 0.6) & (distances < 1.0))} codici")
+    print(f"   Very far (>1.0): {np.sum(distances >= 1.0)} codici")
+    
+    print(f"\n⚠️  PARADOSSI (Disorganizzazione):")
+    
+    valid_mask = ~(np.isnan(temp_corr) | np.isnan(spec_corr))
+    distances_valid = distances[valid_mask]
+    temp_valid_full = temp_corr[valid_mask]
+    spec_valid_full = spec_corr[valid_mask]
+    
+    paradox_1 = np.sum((distances_valid < 0.3) & (temp_valid_full < 0))
+    print(f"   Close embeddings, negative temporal corr: {paradox_1} codici")
+    
+    paradox_2 = np.sum((distances_valid > 0.8) & (temp_valid_full > 0.8))
+    print(f"   Far embeddings, high temporal corr: {paradox_2} codici")
+    
+    paradox_3 = np.sum((spec_valid_full > 0.95) & (temp_valid_full < 0.3))
+    print(f"   High spectral, low temporal corr: {paradox_3} codici (PHASE ISSUE!)")
+    
+    paradox_4 = np.sum((temp_valid_full > 0.9) & (temp_valid_full != 1.0))
+    print(f"   Near-duplicate codes (corr>0.9, not base): {paradox_4} codici (MODE COLLAPSE?)")
+
+# ============================================================================
+# HELPER: Converti matplotlib figure a PIL Image per W&B
+# ============================================================================
+
+def fig_to_pil(fig):
+    """Converte matplotlib figure a PIL Image (per W&B)"""
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+    buf.seek(0)
+    img = Image.open(buf)
+    return img
+
+# ============================================================================
+# FUNZIONI - VISUALIZZAZIONI (✨ WANDB ONLY)
+# ============================================================================
+
+def visualize_code0_correlation_vs_distance(results, embeddings):
+    """
+    ✨ WANDB ONLY: Crea SOLO i 4 grafici richiesti
+    
+    1. Temporal Correlation vs Cosine Distance
+    2. Spectral Correlation vs Cosine Distance  
+    3. Temporal vs Spectral Correlation
+    4. Comparison: Cosine vs Euclidean Distance
+    """
     
     distances = results['distances']
     temp_corr = results['temporal_correlations']
     spec_corr = results['spectral_correlations']
     code_indices = results['code_indices']
     
+    valid_mask = ~(np.isnan(temp_corr) | np.isnan(spec_corr))
+    distances_valid = distances[valid_mask]
+    temp_corr_valid = temp_corr[valid_mask]
+    spec_corr_valid = spec_corr[valid_mask]
+    code_indices_valid = code_indices[valid_mask]
+    
+    wandb_images = {}
+    
     # ========================================================================
-    # PLOT 1: Scatter plot con trend line
+    # UNICO PLOT: 2x2 con i 4 grafici richiesti
     # ========================================================================
-    fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+    fig, axes = plt.subplots(2, 2, figsize=(18, 14))
     
-    # --- Temporal Correlation ---
-    scatter1 = axes[0].scatter(distances, temp_corr, alpha=0.6, s=60, 
-                              c=distances, cmap='viridis', edgecolors='black', linewidth=0.5)
-    axes[0].plot(distances, temp_corr, 'r-', alpha=0.2, linewidth=1, label='Connection')
+    # ========================================================================
+    # PLOT 1 (Top-Left): Temporal Correlation vs Cosine Distance
+    # ========================================================================
+    ax = axes[0, 0]
     
-    # Trend line (regressione lineare)
-    z_temp = np.polyfit(distances, temp_corr, 1)
-    p_temp = np.poly1d(z_temp)
-    axes[0].plot(distances, p_temp(distances), "b--", linewidth=3, 
-                label=f'Linear fit: y={z_temp[0]:.3f}x+{z_temp[1]:.3f}')
+    # Scatter con colormap
+    scatter1 = ax.scatter(distances_valid, temp_corr_valid, alpha=0.6, s=80, 
+                         c=code_indices_valid, cmap='viridis', edgecolors='black', linewidth=0.8)
     
-    axes[0].set_xlabel('Distance from Code 0', fontsize=13, fontweight='bold')
-    axes[0].set_ylabel('Temporal Correlation', fontsize=13, fontweight='bold')
-    axes[0].set_title('Temporal Correlation vs Distance from Code 0', 
-                     fontsize=14, fontweight='bold')
-    axes[0].legend(loc='best', fontsize=11)
-    axes[0].grid(True, alpha=0.3)
-    axes[0].axhline(0, color='black', linestyle='--', alpha=0.3, linewidth=1)
+    # Connection lines (opzionale, molto sottile)
+    ax.plot(distances_valid, temp_corr_valid, 'gray', alpha=0.15, linewidth=0.5, 
+           label='Connection', zorder=1)
+    
+    # Polynomial fit (grado 2) per curva a U
+    z_poly = np.polyfit(distances_valid, temp_corr_valid, 2)
+    p_poly = np.poly1d(z_poly)
+    x_smooth = np.linspace(distances_valid.min(), distances_valid.max(), 200)
+    ax.plot(x_smooth, p_poly(x_smooth), 'r--', linewidth=3, 
+           label=f'Poly fit (deg 2)', zorder=3)
+    
+    # Markers speciali
+    # Base Code 0 (stella rossa)
+    base_idx = np.where(code_indices_valid == 0)[0]
+    if len(base_idx) > 0:
+        ax.scatter(distances_valid[base_idx], temp_corr_valid[base_idx], 
+                  marker='*', s=500, c='red', edgecolors='black', linewidth=2,
+                  label='Base Code 0', zorder=5)
+    
+    ax.set_xlabel('Cosine Distance (Embedding Space)', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Temporal Correlation', fontsize=13, fontweight='bold')
+    ax.set_title('Temporal Correlation vs Cosine Distance', fontsize=14, fontweight='bold')
+    ax.legend(loc='best', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.axhline(0, color='black', linestyle='--', alpha=0.4, linewidth=1)
     
     # Colorbar
-    plt.colorbar(scatter1, ax=axes[0], label='Distance')
+    cbar1 = plt.colorbar(scatter1, ax=ax, label='code index')
     
-    # Statistiche
-    corr_temp_dist, p_temp_val = pearsonr(distances, temp_corr)
-    stats_text = f'Pearson r = {corr_temp_dist:.4f}\n'
-    stats_text += f'p-value = {p_temp_val:.4e}\n'
-    stats_text += f'Mean corr = {np.mean(temp_corr):.3f}\n'
-    stats_text += f'Std = {np.std(temp_corr):.3f}\n'
-    stats_text += f'Min = {np.min(temp_corr):.3f}\n'
-    stats_text += f'Max = {np.max(temp_corr):.3f}'
+    # Stats box
+    metrics_temp = compute_correlation_metrics(distances_valid, temp_corr_valid)
+    stats_text = f'Pearson r = {metrics_temp["pearson_r"]:.4f}\n'
+    stats_text += f'p = {metrics_temp["pearson_p"]:.2e}\n'
+    stats_text += f'Mean corr = {np.mean(temp_corr_valid):.3f}\n'
+    stats_text += f'Std = {np.std(temp_corr_valid):.3f}\n'
+    stats_text += f'Min = {np.min(temp_corr_valid):.3f}\n'
+    stats_text += f'Max = {np.max(temp_corr_valid):.3f}'
     
-    axes[0].text(0.02, 0.98, stats_text, transform=axes[0].transAxes,
-                verticalalignment='top', fontsize=10,
-                bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
-    
-    # --- Spectral Correlation ---
-    scatter2 = axes[1].scatter(distances, spec_corr, alpha=0.6, s=60,
-                              c=distances, cmap='plasma', edgecolors='black', linewidth=0.5)
-    axes[1].plot(distances, spec_corr, 'b-', alpha=0.2, linewidth=1, label='Connection')
-    
-    # Trend line
-    z_spec = np.polyfit(distances, spec_corr, 1)
-    p_spec = np.poly1d(z_spec)
-    axes[1].plot(distances, p_spec(distances), "orange", linestyle='--', linewidth=3,
-                label=f'Linear fit: y={z_spec[0]:.3f}x+{z_spec[1]:.3f}')
-    
-    axes[1].set_xlabel('Distance from Code 0', fontsize=13, fontweight='bold')
-    axes[1].set_ylabel('Spectral Correlation', fontsize=13, fontweight='bold')
-    axes[1].set_title('Spectral Correlation vs Distance from Code 0',
-                     fontsize=14, fontweight='bold')
-    axes[1].legend(loc='best', fontsize=11)
-    axes[1].grid(True, alpha=0.3)
-    axes[1].axhline(0, color='black', linestyle='--', alpha=0.3, linewidth=1)
-    
-    # Colorbar
-    plt.colorbar(scatter2, ax=axes[1], label='Distance')
-    
-    # Statistiche
-    corr_spec_dist, p_spec_val = pearsonr(distances, spec_corr)
-    stats_text = f'Pearson r = {corr_spec_dist:.4f}\n'
-    stats_text += f'p-value = {p_spec_val:.4e}\n'
-    stats_text += f'Mean corr = {np.mean(spec_corr):.3f}\n'
-    stats_text += f'Std = {np.std(spec_corr):.3f}\n'
-    stats_text += f'Min = {np.min(spec_corr):.3f}\n'
-    stats_text += f'Max = {np.max(spec_corr):.3f}'
-    
-    axes[1].text(0.02, 0.98, stats_text, transform=axes[1].transAxes,
-                verticalalignment='top', fontsize=10,
-                bbox=dict(boxstyle='round', facecolor='lightcoral', alpha=0.8))
-    
-    plt.suptitle(f'Correlation Decay Analysis - Base Code 0', 
-                fontsize=16, fontweight='bold', y=1.00)
-    plt.tight_layout()
-    plt.savefig(save_dir / 'code0_correlation_vs_distance_main.png', 
-                dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✅ Main plot salvato: {save_dir / 'code0_correlation_vs_distance_main.png'}")
+    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+           verticalalignment='top', fontsize=9,
+           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='black'))
     
     # ========================================================================
-    # PLOT 2: Binned analysis (distanza in bins)
+    # PLOT 2 (Top-Right): Spectral Correlation vs Cosine Distance
     # ========================================================================
-    fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+    ax = axes[0, 1]
     
-    # Crea bins di distanza
-    num_bins = 10
-    bins = np.linspace(np.min(distances), np.max(distances), num_bins + 1)
-    bin_centers = (bins[:-1] + bins[1:]) / 2
+    scatter2 = ax.scatter(distances_valid, spec_corr_valid, alpha=0.6, s=80,
+                         c=code_indices_valid, cmap='plasma', edgecolors='black', linewidth=0.8)
     
-    temp_corr_binned = []
-    spec_corr_binned = []
-    temp_corr_std = []
-    spec_corr_std = []
+    ax.plot(distances_valid, spec_corr_valid, 'gray', alpha=0.15, linewidth=0.5,
+           label='Connection', zorder=1)
     
-    for i in range(num_bins):
-        mask = (distances >= bins[i]) & (distances < bins[i+1])
-        
-        if np.sum(mask) > 0:
-            temp_corr_binned.append(np.mean(temp_corr[mask]))
-            spec_corr_binned.append(np.mean(spec_corr[mask]))
-            temp_corr_std.append(np.std(temp_corr[mask]))
-            spec_corr_std.append(np.std(spec_corr[mask]))
-        else:
-            temp_corr_binned.append(np.nan)
-            spec_corr_binned.append(np.nan)
-            temp_corr_std.append(np.nan)
-            spec_corr_std.append(np.nan)
+    # Linear fit per spectral (di solito più lineare)
+    z_linear = np.polyfit(distances_valid, spec_corr_valid, 2)
+    p_linear = np.poly1d(z_linear)
+    ax.plot(x_smooth, p_linear(x_smooth), 'r--', linewidth=3,
+           label=f'Poly fit (deg 2)', zorder=3)
     
-    temp_corr_binned = np.array(temp_corr_binned)
-    spec_corr_binned = np.array(spec_corr_binned)
-    temp_corr_std = np.array(temp_corr_std)
-    spec_corr_std = np.array(spec_corr_std)
+    # Base Code 0
+    if len(base_idx) > 0:
+        ax.scatter(distances_valid[base_idx], spec_corr_valid[base_idx],
+                  marker='*', s=500, c='red', edgecolors='black', linewidth=2,
+                  label='Base Code 0', zorder=5)
     
-    # Temporal binned
-    axes[0].errorbar(bin_centers, temp_corr_binned, yerr=temp_corr_std,
-                    fmt='o-', color='blue', markersize=10, linewidth=2,
-                    capsize=5, capthick=2, label='Mean ± Std')
-    axes[0].fill_between(bin_centers, 
-                        temp_corr_binned - temp_corr_std,
-                        temp_corr_binned + temp_corr_std,
-                        alpha=0.2, color='blue')
+    ax.set_xlabel('Cosine Distance (Embedding Space)', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Spectral Correlation', fontsize=13, fontweight='bold')
+    ax.set_title('Spectral Correlation vs Cosine Distance', fontsize=14, fontweight='bold')
+    ax.legend(loc='best', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.axhline(0, color='black', linestyle='--', alpha=0.4, linewidth=1)
     
-    axes[0].set_xlabel('Distance from Code 0 (binned)', fontsize=13, fontweight='bold')
-    axes[0].set_ylabel('Temporal Correlation', fontsize=13, fontweight='bold')
-    axes[0].set_title('Binned Temporal Correlation', fontsize=14, fontweight='bold')
-    axes[0].legend(loc='best', fontsize=11)
-    axes[0].grid(True, alpha=0.3)
-    axes[0].axhline(0, color='black', linestyle='--', alpha=0.3)
+    cbar2 = plt.colorbar(scatter2, ax=ax, label='code index')
     
-    # Spectral binned
-    axes[1].errorbar(bin_centers, spec_corr_binned, yerr=spec_corr_std,
-                    fmt='s-', color='red', markersize=10, linewidth=2,
-                    capsize=5, capthick=2, label='Mean ± Std')
-    axes[1].fill_between(bin_centers,
-                        spec_corr_binned - spec_corr_std,
-                        spec_corr_binned + spec_corr_std,
-                        alpha=0.2, color='red')
+    # Stats box
+    metrics_spec = compute_correlation_metrics(distances_valid, spec_corr_valid)
+    stats_text = f'Pearson r = {metrics_spec["pearson_r"]:.4f}\n'
+    stats_text += f'p = {metrics_spec["pearson_p"]:.2e}\n'
+    stats_text += f'Mean corr = {np.mean(spec_corr_valid):.3f}\n'
+    stats_text += f'Std = {np.std(spec_corr_valid):.3f}\n'
+    stats_text += f'Min = {np.min(spec_corr_valid):.3f}\n'
+    stats_text += f'Max = {np.max(spec_corr_valid):.3f}'
     
-    axes[1].set_xlabel('Distance from Code 0 (binned)', fontsize=13, fontweight='bold')
-    axes[1].set_ylabel('Spectral Correlation', fontsize=13, fontweight='bold')
-    axes[1].set_title('Binned Spectral Correlation', fontsize=14, fontweight='bold')
-    axes[1].legend(loc='best', fontsize=11)
-    axes[1].grid(True, alpha=0.3)
-    axes[1].axhline(0, color='black', linestyle='--', alpha=0.3)
-    
-    plt.suptitle(f'Binned Analysis - Base Code 0 ({num_bins} bins)', 
-                fontsize=16, fontweight='bold', y=1.00)
-    plt.tight_layout()
-    plt.savefig(save_dir / 'code0_correlation_vs_distance_binned.png',
-                dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✅ Binned plot salvato: {save_dir / 'code0_correlation_vs_distance_binned.png'}")
+    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+           verticalalignment='top', fontsize=9,
+           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='black'))
     
     # ========================================================================
-    # PLOT 3: Distribuzione delle correlazioni
+    # PLOT 3 (Bottom-Left): Temporal vs Spectral Correlation
     # ========================================================================
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    ax = axes[1, 0]
     
-    # Histogram temporal correlation
-    axes[0, 0].hist(temp_corr, bins=30, color='blue', alpha=0.7, edgecolor='black')
-    axes[0, 0].axvline(np.mean(temp_corr), color='red', linestyle='--', 
-                      linewidth=2, label=f'Mean: {np.mean(temp_corr):.3f}')
-    axes[0, 0].axvline(np.median(temp_corr), color='orange', linestyle='--',
-                      linewidth=2, label=f'Median: {np.median(temp_corr):.3f}')
-    axes[0, 0].set_xlabel('Temporal Correlation', fontsize=12)
-    axes[0, 0].set_ylabel('Frequency', fontsize=12)
-    axes[0, 0].set_title('Distribution of Temporal Correlations', fontsize=13, fontweight='bold')
-    axes[0, 0].legend()
-    axes[0, 0].grid(True, alpha=0.3, axis='y')
+    scatter3 = ax.scatter(temp_corr_valid, spec_corr_valid, alpha=0.6, s=80,
+                         c=distances_valid, cmap='coolwarm', edgecolors='black', linewidth=0.8)
     
-    # Histogram spectral correlation
-    axes[0, 1].hist(spec_corr, bins=30, color='red', alpha=0.7, edgecolor='black')
-    axes[0, 1].axvline(np.mean(spec_corr), color='blue', linestyle='--',
-                      linewidth=2, label=f'Mean: {np.mean(spec_corr):.3f}')
-    axes[0, 1].axvline(np.median(spec_corr), color='orange', linestyle='--',
-                      linewidth=2, label=f'Median: {np.median(spec_corr):.3f}')
-    axes[0, 1].set_xlabel('Spectral Correlation', fontsize=12)
-    axes[0, 1].set_ylabel('Frequency', fontsize=12)
-    axes[0, 1].set_title('Distribution of Spectral Correlations', fontsize=13, fontweight='bold')
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3, axis='y')
+    # Identity line
+    lims = [-1.1, 1.1]
+    ax.plot(lims, lims, 'k--', alpha=0.4, linewidth=2, label='Perfect agreement', zorder=1)
     
-    # Histogram distances
-    axes[1, 0].hist(distances, bins=30, color='green', alpha=0.7, edgecolor='black')
-    axes[1, 0].axvline(np.mean(distances), color='red', linestyle='--',
-                      linewidth=2, label=f'Mean: {np.mean(distances):.3f}')
-    axes[1, 0].set_xlabel('Distance from Code 0', fontsize=12)
-    axes[1, 0].set_ylabel('Frequency', fontsize=12)
-    axes[1, 0].set_title('Distribution of Distances', fontsize=13, fontweight='bold')
-    axes[1, 0].legend()
-    axes[1, 0].grid(True, alpha=0.3, axis='y')
+    # Base Code 0
+    if len(base_idx) > 0:
+        ax.scatter(temp_corr_valid[base_idx], spec_corr_valid[base_idx],
+                  marker='*', s=500, c='red', edgecolors='black', linewidth=2,
+                  label='Base Code 0', zorder=5)
     
-    # Scatter: Temporal vs Spectral correlation
-    axes[1, 1].scatter(temp_corr, spec_corr, alpha=0.6, s=50,
-                      c=distances, cmap='viridis', edgecolors='black', linewidth=0.5)
-    axes[1, 1].set_xlabel('Temporal Correlation', fontsize=12)
-    axes[1, 1].set_ylabel('Spectral Correlation', fontsize=12)
-    axes[1, 1].set_title('Temporal vs Spectral Correlation', fontsize=13, fontweight='bold')
-    axes[1, 1].grid(True, alpha=0.3)
+    ax.set_xlabel('Temporal Correlation', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Spectral Correlation', fontsize=13, fontweight='bold')
+    ax.set_title('Temporal vs Spectral Correlation', fontsize=14, fontweight='bold')
+    ax.set_xlim(lims)
+    ax.set_ylim(lims)
+    ax.legend(loc='best', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.axhline(0, color='black', linestyle='-', alpha=0.2, linewidth=1)
+    ax.axvline(0, color='black', linestyle='-', alpha=0.2, linewidth=1)
+    
+    cbar3 = plt.colorbar(scatter3, ax=ax, label='Distance')
     
     # Correlation between temporal and spectral
-    corr_temp_spec, _ = pearsonr(temp_corr, spec_corr)
-    axes[1, 1].text(0.05, 0.95, f'Corr(temp, spec) = {corr_temp_spec:.3f}',
-                   transform=axes[1, 1].transAxes, fontsize=11,
-                   verticalalignment='top',
-                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    corr_temp_spec, p_temp_spec = pearsonr(temp_corr_valid, spec_corr_valid)
+    stats_text = f'Pearson r = {corr_temp_spec:.4f}\n'
+    stats_text += f'p = {p_temp_spec:.2e}'
     
-    cbar = plt.colorbar(axes[1, 1].collections[0], ax=axes[1, 1], label='Distance')
-    
-    plt.suptitle('Distribution Analysis - Base Code 0', fontsize=16, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(save_dir / 'code0_distributions.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"✅ Distribution plot salvato: {save_dir / 'code0_distributions.png'}")
+    ax.text(0.05, 0.95, stats_text, transform=ax.transAxes,
+           verticalalignment='top', fontsize=10,
+           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='black'))
     
     # ========================================================================
-    # PLOT 4: Top/Bottom codici
+    # PLOT 4 (Bottom-Right): Cosine vs Euclidean Distance
     # ========================================================================
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    ax = axes[1, 1]
     
-    # Top 5 più vicini (bassa distanza)
-    top_5_closest_idx = np.argsort(distances)[:5]
+    # Calcola distanze Euclidean
+    from sklearn.metrics.pairwise import euclidean_distances
     
-    axes[0, 0].bar(range(5), distances[top_5_closest_idx], color='green', alpha=0.7, edgecolor='black')
-    axes[0, 0].set_xticks(range(5))
-    axes[0, 0].set_xticklabels([f'Code {code_indices[i]}' for i in top_5_closest_idx], rotation=45)
-    axes[0, 0].set_ylabel('Distance', fontsize=12)
-    axes[0, 0].set_title('Top 5 Closest Codes', fontsize=13, fontweight='bold')
-    axes[0, 0].grid(True, alpha=0.3, axis='y')
+    base_code_idx = 1
+    base_embedding = embeddings[base_code_idx:base_code_idx+1]
     
-    # Correlazioni dei più vicini
-    x = np.arange(5)
-    width = 0.35
-    axes[0, 1].bar(x - width/2, temp_corr[top_5_closest_idx], width,
-                  label='Temporal', color='blue', alpha=0.7, edgecolor='black')
-    axes[0, 1].bar(x + width/2, spec_corr[top_5_closest_idx], width,
-                  label='Spectral', color='red', alpha=0.7, edgecolor='black')
-    axes[0, 1].set_xticks(x)
-    axes[0, 1].set_xticklabels([f'Code {code_indices[i]}' for i in top_5_closest_idx], rotation=45)
-    axes[0, 1].set_ylabel('Correlation', fontsize=12)
-    axes[0, 1].set_title('Correlations of Closest Codes', fontsize=13, fontweight='bold')
-    axes[0, 1].legend()
-    axes[0, 1].grid(True, alpha=0.3, axis='y')
+    # Euclidean distances
+    euclidean_dists = euclidean_distances(embeddings, base_embedding).flatten()
     
-    # Top 5 più lontani (alta distanza)
-    top_5_farthest_idx = np.argsort(distances)[-5:][::-1]
+    # Normalizza per confronto
+    euclidean_dists_norm = euclidean_dists / np.max(euclidean_dists)
     
-    axes[1, 0].bar(range(5), distances[top_5_farthest_idx], color='red', alpha=0.7, edgecolor='black')
-    axes[1, 0].set_xticks(range(5))
-    axes[1, 0].set_xticklabels([f'Code {code_indices[i]}' for i in top_5_farthest_idx], rotation=45)
-    axes[1, 0].set_ylabel('Distance', fontsize=12)
-    axes[1, 0].set_title('Top 5 Farthest Codes', fontsize=13, fontweight='bold')
-    axes[1, 0].grid(True, alpha=0.3, axis='y')
+    # Filtra con la stessa mask
+    euclidean_dists_valid = euclidean_dists_norm[valid_mask]
     
-    # Correlazioni dei più lontani
-    axes[1, 1].bar(x - width/2, temp_corr[top_5_farthest_idx], width,
-                  label='Temporal', color='blue', alpha=0.7, edgecolor='black')
-    axes[1, 1].bar(x + width/2, spec_corr[top_5_farthest_idx], width,
-                  label='Spectral', color='red', alpha=0.7, edgecolor='black')
-    axes[1, 1].set_xticks(x)
-    axes[1, 1].set_xticklabels([f'Code {code_indices[i]}' for i in top_5_farthest_idx], rotation=45)
-    axes[1, 1].set_ylabel('Correlation', fontsize=12)
-    axes[1, 1].set_title('Correlations of Farthest Codes', fontsize=13, fontweight='bold')
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3, axis='y')
+    # Scatter: Cosine vs Euclidean (entrambi normalizzati)
+    scatter4_cosine = ax.scatter(euclidean_dists_valid, temp_corr_valid, 
+                                alpha=0.6, s=70, c='blue', 
+                                edgecolors='black', linewidth=0.8,
+                                label='Cosine Distance')
     
-    plt.suptitle('Closest vs Farthest Codes Analysis', fontsize=16, fontweight='bold')
+    scatter4_euclidean = ax.scatter(euclidean_dists_valid, temp_corr_valid,
+                                   alpha=0.6, s=70, c='orange',
+                                   edgecolors='black', linewidth=0.8, marker='s',
+                                   label='Euclidean Distance')
+    
+    # Nota: In realtà stiamo plottando ENTRAMBI contro temporal correlation
+    # Per fare comparison corretta, plottiamo cosine vs euclidean direttamente
+    ax.clear()
+    
+    scatter4 = ax.scatter(distances_valid, euclidean_dists_valid, alpha=0.6, s=80,
+                         c=temp_corr_valid, cmap='RdYlGn', vmin=-1, vmax=1,
+                         edgecolors='black', linewidth=0.8)
+    
+    # Identity line (se normalizzati uguali)
+    max_dist = max(distances_valid.max(), euclidean_dists_valid.max())
+    ax.plot([0, max_dist], [0, max_dist], 'k--', alpha=0.4, linewidth=2, 
+           label='y=x (Perfect agreement)', zorder=1)
+    
+    ax.set_xlabel('Cosine Distance', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Euclidean Distance (normalized)', fontsize=13, fontweight='bold')
+    ax.set_title('Comparison: Cosine vs Euclidean Distance', fontsize=14, fontweight='bold')
+    ax.legend(loc='best', fontsize=10)
+    ax.grid(True, alpha=0.3)
+    
+    cbar4 = plt.colorbar(scatter4, ax=ax, label='Temporal Correlation')
+    
+    # Correlation between cosine and euclidean
+    corr_dists, p_dists = pearsonr(distances_valid, euclidean_dists_valid)
+    stats_text = f'Corr(cosine, euclidean):\n'
+    stats_text += f'Pearson r = {corr_dists:.4f}\n'
+    stats_text += f'p = {p_dists:.2e}'
+    
+    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+           verticalalignment='top', fontsize=9,
+           bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='black'))
+    
+    # ========================================================================
+    # Suptitle e finalizzazione
+    # ========================================================================
+    plt.suptitle('Correlation vs Distance from Base Code 0', 
+                fontsize=16, fontweight='bold', y=0.995)
     plt.tight_layout()
-    plt.savefig(save_dir / 'code0_top_bottom_codes.png', dpi=300, bbox_inches='tight')
-    plt.close()
     
-    print(f"✅ Top/Bottom codes plot salvato: {save_dir / 'code0_top_bottom_codes.png'}")
+    # Converti a PIL e aggiungi a dict
+    wandb_images['correlation_vs_distance_4plots'] = wandb.Image(fig_to_pil(fig))
+    plt.close(fig)
     
-    return {
-        'corr_temporal_vs_distance': corr_temp_dist,
-        'corr_spectral_vs_distance': corr_spec_dist,
-        'p_value_temporal': p_temp_val,
-        'p_value_spectral': p_spec_val
+    print(f"✅ 4-plot figure creata per W&B")
+    
+    return wandb_images, {
+        'metrics_temporal': metrics_temp,
+        'metrics_spectral': metrics_spec,
     }
 
 
+# ============================================================================
+# MAIN
+# ============================================================================
+
 def main():
     print("="*70)
-    print("📊 ANALISI CORRELAZIONE vs DISTANZA - CODICE BASE 0")
+    print("📊 ANALISI CORRELAZIONE vs DISTANZA - WANDB ONLY VERSION")
     print("="*70)
     print(f"\n📋 Configurazione:")
     print(f"   Checkpoint: {CHECKPOINT_PATH}")
     print(f"   Num embeddings: {MODEL_CONFIG['num_embeddings']}")
     print(f"   Temporal length: {TEMPORAL_LENGTH}")
     print(f"   Base code: {BASE_CODE}")
-    print(f"   W&B Project: {WANDB_PROJECT}")
+    print(f"   Batch size (decoding): {BATCH_SIZE}")
+    print(f"   ✨ Mode: WANDB ONLY (no local saves)")
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"\n💻 Device: {device}")
@@ -571,9 +634,10 @@ def main():
             "checkpoint_path": CHECKPOINT_PATH,
             "temporal_length": TEMPORAL_LENGTH,
             "base_code": BASE_CODE,
+            "batch_size": BATCH_SIZE,
             **MODEL_CONFIG
         },
-        tags=["correlation", "distance-analysis", "code0"]
+        tags=["correlation", "distance-analysis", "code0", "wandb-only"]
     )
     
     print(f"✅ W&B inizializzato: {wandb.run.url}")
@@ -596,100 +660,70 @@ def main():
         print(f"{'='*70}")
         
         results = analyze_code0_correlations_vs_distance(
-            model, embeddings, device, TEMPORAL_LENGTH
+            model, embeddings, device, TEMPORAL_LENGTH, batch_size=BATCH_SIZE
         )
+        
+        # 4. Stampa statistiche
+        print_correlation_statistics(results)
         
         # Log metriche base
         wandb.log({
-            'mean_temporal_corr': np.mean(results['temporal_correlations']),
-            'std_temporal_corr': np.std(results['temporal_correlations']),
-            'mean_spectral_corr': np.mean(results['spectral_correlations']),
-            'std_spectral_corr': np.std(results['spectral_correlations']),
+            'mean_temporal_corr': np.nanmean(results['temporal_correlations']),
+            'std_temporal_corr': np.nanstd(results['temporal_correlations']),
+            'mean_spectral_corr': np.nanmean(results['spectral_correlations']),
+            'std_spectral_corr': np.nanstd(results['spectral_correlations']),
             'mean_distance': np.mean(results['distances']),
             'std_distance': np.std(results['distances']),
         })
         
-        # 4. Visualizza risultati
+        # 5. Crea visualizzazioni (WANDB ONLY)
         print(f"\n{'='*70}")
-        print("📈 CREAZIONE VISUALIZZAZIONI")
+        print("📈 CREAZIONE VISUALIZZAZIONI (W&B Upload)")
         print(f"{'='*70}")
         
-        viz_stats = visualize_code0_correlation_vs_distance(results, SAVE_DIR)
+        wandb_images, viz_stats = visualize_code0_correlation_vs_distance(results, embeddings)
         
-        # Log immagini su W&B
+        # 6. Upload immagini su W&B
+        print(f"\n☁️  Uploading images to W&B...")
+        wandb.log(wandb_images)
+        print(f"✅ 1 immagine (4 sub-plots) caricata su W&B!")
+        print(f"   - correlation_vs_distance_4plots:")
+        print(f"     • Top-Left: Temporal vs Cosine Distance")
+        print(f"     • Top-Right: Spectral vs Cosine Distance")
+        print(f"     • Bottom-Left: Temporal vs Spectral")
+        print(f"     • Bottom-Right: Cosine vs Euclidean Distance")
+        
+        # 7. Log statistiche finali
+        metrics_temp = viz_stats['metrics_temporal']
+        metrics_spec = viz_stats['metrics_spectral']
+        
         wandb.log({
-            "main_plot": wandb.Image(str(SAVE_DIR / 'code0_correlation_vs_distance_main.png')),
-            "binned_plot": wandb.Image(str(SAVE_DIR / 'code0_correlation_vs_distance_binned.png')),
-            "distributions": wandb.Image(str(SAVE_DIR / 'code0_distributions.png')),
-            "top_bottom_codes": wandb.Image(str(SAVE_DIR / 'code0_top_bottom_codes.png')),
+            'temporal_pearson_r': metrics_temp['pearson_r'],
+            'temporal_spearman_r': metrics_temp['spearman_r'],
+            'temporal_kendall_tau': metrics_temp['kendall_tau'],
+            'spectral_pearson_r': metrics_spec['pearson_r'],
+            'spectral_spearman_r': metrics_spec['spearman_r'],
+            'spectral_kendall_tau': metrics_spec['kendall_tau'],
         })
         
-        # 5. Statistiche finali
+        # 8. Summary
         print(f"\n{'='*70}")
         print("📊 STATISTICHE FINALI")
         print(f"{'='*70}")
         
-        print(f"\n   🔵 Temporal Correlation:")
-        print(f"      Mean: {np.mean(results['temporal_correlations']):.4f}")
-        print(f"      Std: {np.std(results['temporal_correlations']):.4f}")
-        print(f"      Min: {np.min(results['temporal_correlations']):.4f}")
-        print(f"      Max: {np.max(results['temporal_correlations']):.4f}")
-        print(f"      Corr with Distance: {viz_stats['corr_temporal_vs_distance']:.4f}")
-        print(f"      P-value: {viz_stats['p_value_temporal']:.4e}")
+        print(f"\n   🔵 Temporal:")
+        print(f"      Pearson r: {metrics_temp['pearson_r']:.4f} (p={metrics_temp['pearson_p']:.4e})")
+        print(f"      Spearman ρ: {metrics_temp['spearman_r']:.4f}")
         
-        print(f"\n   🔴 Spectral Correlation:")
-        print(f"      Mean: {np.mean(results['spectral_correlations']):.4f}")
-        print(f"      Std: {np.std(results['spectral_correlations']):.4f}")
-        print(f"      Min: {np.min(results['spectral_correlations']):.4f}")
-        print(f"      Max: {np.max(results['spectral_correlations']):.4f}")
-        print(f"      Corr with Distance: {viz_stats['corr_spectral_vs_distance']:.4f}")
-        print(f"      P-value: {viz_stats['p_value_spectral']:.4e}")
+        print(f"\n   🔴 Spectral:")
+        print(f"      Pearson r: {metrics_spec['pearson_r']:.4f} (p={metrics_spec['pearson_p']:.4e})")
+        print(f"      Spearman ρ: {metrics_spec['spearman_r']:.4f}")
         
-        print(f"\n   🟢 Distance:")
-        print(f"      Mean: {np.mean(results['distances']):.4f}")
-        print(f"      Std: {np.std(results['distances']):.4f}")
-        print(f"      Min: {np.min(results['distances']):.4f}")
-        print(f"      Max: {np.max(results['distances']):.4f}")
-        
-        # Log statistiche aggregate
-        wandb.log({
-            'corr_temporal_vs_distance': viz_stats['corr_temporal_vs_distance'],
-            'corr_spectral_vs_distance': viz_stats['corr_spectral_vs_distance'],
-            'p_value_temporal': viz_stats['p_value_temporal'],
-            'p_value_spectral': viz_stats['p_value_spectral'],
-        })
-        
-        # 6. Interpretazione
-        print(f"\n{'='*70}")
-        print("💡 INTERPRETAZIONE")
-        print(f"{'='*70}")
-        
-        if viz_stats['corr_temporal_vs_distance'] < -0.3 and viz_stats['p_value_temporal'] < 0.05:
-            print(f"\n   ✅ TEMPORAL: Strong negative correlation (r={viz_stats['corr_temporal_vs_distance']:.3f}, p<0.05)")
-            print(f"      → Codici più distanti hanno tracce temporali meno correlate")
-        elif viz_stats['corr_temporal_vs_distance'] < -0.1:
-            print(f"\n   ⚠️  TEMPORAL: Weak negative correlation (r={viz_stats['corr_temporal_vs_distance']:.3f})")
-            print(f"      → Trend debole di decorrelazione temporale con distanza")
-        else:
-            print(f"\n   ❌ TEMPORAL: No clear relationship (r={viz_stats['corr_temporal_vs_distance']:.3f})")
-            print(f"      → Distanza embedding non predice correlazione temporale")
-        
-        if viz_stats['corr_spectral_vs_distance'] < -0.3 and viz_stats['p_value_spectral'] < 0.05:
-            print(f"\n   ✅ SPECTRAL: Strong negative correlation (r={viz_stats['corr_spectral_vs_distance']:.3f}, p<0.05)")
-            print(f"      → Codici più distanti hanno spettri meno correlati")
-        elif viz_stats['corr_spectral_vs_distance'] < -0.1:
-            print(f"\n   ⚠️  SPECTRAL: Weak negative correlation (r={viz_stats['corr_spectral_vs_distance']:.3f})")
-            print(f"      → Trend debole di decorrelazione spettrale con distanza")
-        else:
-            print(f"\n   ❌ SPECTRAL: No clear relationship (r={viz_stats['corr_spectral_vs_distance']:.3f})")
-            print(f"      → Distanza embedding non predice correlazione spettrale")
-        
-        # 7. Summary finale
         print(f"\n{'='*70}")
         print("✅ ANALISI COMPLETATA!")
         print(f"{'='*70}")
-        print(f"\n📁 Risultati salvati in: {SAVE_DIR}/")
-        print(f"🌐 W&B: {wandb.run.url}")
+        print(f"\n🌐 W&B Dashboard: {wandb.run.url}")
+        print(f"✨ Nessun file salvato in locale - tutto su W&B!")
         
     except Exception as e:
         print(f"\n❌ Errore: {e}")
