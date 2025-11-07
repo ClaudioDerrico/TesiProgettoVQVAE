@@ -7,6 +7,7 @@ Analisi Correlazione vs Distanza dal Codice Base 0 (WANDB ONLY VERSION)
 - SOLO upload su W&B
 - Figure create in memoria e caricate direttamente su wandb
 - Più pulito e cloud-first
+- 4 GRAFICI: Temporal vs Cosine, Spectral vs Cosine, Temporal vs Euclidean, Spectral vs Euclidean
 
 Uso:
     python codebook_correlation_vs_distance_WANDB_ONLY.py
@@ -22,7 +23,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import wandb
 from datetime import datetime
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 from scipy.stats import pearsonr, spearmanr, kendalltau, sem
 from io import BytesIO
 from PIL import Image
@@ -37,7 +38,7 @@ CHECKPOINT_PATH = "results/best_single_neuron_model_32.pth"
 
 # W&B Configuration
 WANDB_PROJECT = "calcium-vqvae-correlation-vs-distance"
-WANDB_RUN_NAME = f"single_neuron_model_32_2.0"
+WANDB_RUN_NAME = f"single_neuron_model_32"
 
 MODEL_CONFIG = {
     'num_neurons': 1,
@@ -46,7 +47,7 @@ MODEL_CONFIG = {
     'num_residual_hiddens': 64,
     'num_embeddings': 32,
     'embedding_dim': 32,
-    'commitment_cost': 2.0,
+    'commitment_cost': 0.25,
     'dropout_rate': 0.1,
     'use_quantizer': True,
 }
@@ -369,8 +370,8 @@ def visualize_code0_correlation_vs_distance(results, embeddings):
     
     1. Temporal Correlation vs Cosine Distance
     2. Spectral Correlation vs Cosine Distance  
-    3. Temporal vs Spectral Correlation
-    4. Comparison: Cosine vs Euclidean Distance
+    3. Temporal Correlation vs Euclidean Distance
+    4. Spectral Correlation vs Euclidean Distance
     """
     
     distances = results['distances']
@@ -384,6 +385,12 @@ def visualize_code0_correlation_vs_distance(results, embeddings):
     spec_corr_valid = spec_corr[valid_mask]
     code_indices_valid = code_indices[valid_mask]
     
+    # Calcola distanze Euclidean
+    base_code_idx = 1
+    base_embedding = embeddings[base_code_idx:base_code_idx+1]
+    euclidean_dists = euclidean_distances(embeddings, base_embedding).flatten()
+    euclidean_dists_valid = euclidean_dists[valid_mask]
+    
     wandb_images = {}
     
     # ========================================================================
@@ -396,28 +403,25 @@ def visualize_code0_correlation_vs_distance(results, embeddings):
     # ========================================================================
     ax = axes[0, 0]
     
-    # Scatter con colormap
     scatter1 = ax.scatter(distances_valid, temp_corr_valid, alpha=0.6, s=80, 
                          c=code_indices_valid, cmap='viridis', edgecolors='black', linewidth=0.8)
     
-    # Connection lines (opzionale, molto sottile)
     ax.plot(distances_valid, temp_corr_valid, 'gray', alpha=0.15, linewidth=0.5, 
            label='Connection', zorder=1)
     
-    # Polynomial fit (grado 2) per curva a U
+    # Polynomial fit (grado 2)
     z_poly = np.polyfit(distances_valid, temp_corr_valid, 2)
     p_poly = np.poly1d(z_poly)
     x_smooth = np.linspace(distances_valid.min(), distances_valid.max(), 200)
     ax.plot(x_smooth, p_poly(x_smooth), 'r--', linewidth=3, 
            label=f'Poly fit (deg 2)', zorder=3)
     
-    # Markers speciali
-    # Base Code 0 (stella rossa)
-    base_idx = np.where(code_indices_valid == 0)[0]
+    # Base Code marker
+    base_idx = np.where(code_indices_valid == base_code_idx)[0]
     if len(base_idx) > 0:
         ax.scatter(distances_valid[base_idx], temp_corr_valid[base_idx], 
                   marker='*', s=500, c='red', edgecolors='black', linewidth=2,
-                  label='Base Code 0', zorder=5)
+                  label=f'Base Code {base_code_idx}', zorder=5)
     
     ax.set_xlabel('Cosine Distance (Embedding Space)', fontsize=13, fontweight='bold')
     ax.set_ylabel('Temporal Correlation', fontsize=13, fontweight='bold')
@@ -426,17 +430,14 @@ def visualize_code0_correlation_vs_distance(results, embeddings):
     ax.grid(True, alpha=0.3)
     ax.axhline(0, color='black', linestyle='--', alpha=0.4, linewidth=1)
     
-    # Colorbar
-    cbar1 = plt.colorbar(scatter1, ax=ax, label='code index')
+    cbar1 = plt.colorbar(scatter1, ax=ax, label='Code Index')
     
     # Stats box
-    metrics_temp = compute_correlation_metrics(distances_valid, temp_corr_valid)
-    stats_text = f'Pearson r = {metrics_temp["pearson_r"]:.4f}\n'
-    stats_text += f'p = {metrics_temp["pearson_p"]:.2e}\n'
+    metrics_temp_cosine = compute_correlation_metrics(distances_valid, temp_corr_valid)
+    stats_text = f'Pearson r = {metrics_temp_cosine["pearson_r"]:.4f}\n'
+    stats_text += f'p = {metrics_temp_cosine["pearson_p"]:.2e}\n'
     stats_text += f'Mean corr = {np.mean(temp_corr_valid):.3f}\n'
-    stats_text += f'Std = {np.std(temp_corr_valid):.3f}\n'
-    stats_text += f'Min = {np.min(temp_corr_valid):.3f}\n'
-    stats_text += f'Max = {np.max(temp_corr_valid):.3f}'
+    stats_text += f'Std = {np.std(temp_corr_valid):.3f}'
     
     ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
            verticalalignment='top', fontsize=9,
@@ -453,17 +454,17 @@ def visualize_code0_correlation_vs_distance(results, embeddings):
     ax.plot(distances_valid, spec_corr_valid, 'gray', alpha=0.15, linewidth=0.5,
            label='Connection', zorder=1)
     
-    # Linear fit per spectral (di solito più lineare)
-    z_linear = np.polyfit(distances_valid, spec_corr_valid, 2)
-    p_linear = np.poly1d(z_linear)
-    ax.plot(x_smooth, p_linear(x_smooth), 'r--', linewidth=3,
+    # Polynomial fit
+    z_poly2 = np.polyfit(distances_valid, spec_corr_valid, 2)
+    p_poly2 = np.poly1d(z_poly2)
+    ax.plot(x_smooth, p_poly2(x_smooth), 'r--', linewidth=3,
            label=f'Poly fit (deg 2)', zorder=3)
     
-    # Base Code 0
+    # Base Code marker
     if len(base_idx) > 0:
         ax.scatter(distances_valid[base_idx], spec_corr_valid[base_idx],
                   marker='*', s=500, c='red', edgecolors='black', linewidth=2,
-                  label='Base Code 0', zorder=5)
+                  label=f'Base Code {base_code_idx}', zorder=5)
     
     ax.set_xlabel('Cosine Distance (Embedding Space)', fontsize=13, fontweight='bold')
     ax.set_ylabel('Spectral Correlation', fontsize=13, fontweight='bold')
@@ -472,117 +473,101 @@ def visualize_code0_correlation_vs_distance(results, embeddings):
     ax.grid(True, alpha=0.3)
     ax.axhline(0, color='black', linestyle='--', alpha=0.4, linewidth=1)
     
-    cbar2 = plt.colorbar(scatter2, ax=ax, label='code index')
+    cbar2 = plt.colorbar(scatter2, ax=ax, label='Code Index')
     
     # Stats box
-    metrics_spec = compute_correlation_metrics(distances_valid, spec_corr_valid)
-    stats_text = f'Pearson r = {metrics_spec["pearson_r"]:.4f}\n'
-    stats_text += f'p = {metrics_spec["pearson_p"]:.2e}\n'
+    metrics_spec_cosine = compute_correlation_metrics(distances_valid, spec_corr_valid)
+    stats_text = f'Pearson r = {metrics_spec_cosine["pearson_r"]:.4f}\n'
+    stats_text += f'p = {metrics_spec_cosine["pearson_p"]:.2e}\n'
     stats_text += f'Mean corr = {np.mean(spec_corr_valid):.3f}\n'
-    stats_text += f'Std = {np.std(spec_corr_valid):.3f}\n'
-    stats_text += f'Min = {np.min(spec_corr_valid):.3f}\n'
-    stats_text += f'Max = {np.max(spec_corr_valid):.3f}'
+    stats_text += f'Std = {np.std(spec_corr_valid):.3f}'
     
     ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
            verticalalignment='top', fontsize=9,
            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='black'))
     
     # ========================================================================
-    # PLOT 3 (Bottom-Left): Temporal vs Spectral Correlation
+    # PLOT 3 (Bottom-Left): Temporal Correlation vs Euclidean Distance
     # ========================================================================
     ax = axes[1, 0]
     
-    scatter3 = ax.scatter(temp_corr_valid, spec_corr_valid, alpha=0.6, s=80,
-                         c=distances_valid, cmap='coolwarm', edgecolors='black', linewidth=0.8)
+    scatter3 = ax.scatter(euclidean_dists_valid, temp_corr_valid, alpha=0.6, s=80,
+                         c=code_indices_valid, cmap='coolwarm', edgecolors='black', linewidth=0.8)
     
-    # Identity line
-    lims = [-1.1, 1.1]
-    ax.plot(lims, lims, 'k--', alpha=0.4, linewidth=2, label='Perfect agreement', zorder=1)
+    ax.plot(euclidean_dists_valid, temp_corr_valid, 'gray', alpha=0.15, linewidth=0.5,
+           label='Connection', zorder=1)
     
-    # Base Code 0
+    # Polynomial fit
+    z_poly3 = np.polyfit(euclidean_dists_valid, temp_corr_valid, 2)
+    p_poly3 = np.poly1d(z_poly3)
+    x_smooth3 = np.linspace(euclidean_dists_valid.min(), euclidean_dists_valid.max(), 200)
+    ax.plot(x_smooth3, p_poly3(x_smooth3), 'r--', linewidth=3,
+           label=f'Poly fit (deg 2)', zorder=3)
+    
+    # Base Code marker
     if len(base_idx) > 0:
-        ax.scatter(temp_corr_valid[base_idx], spec_corr_valid[base_idx],
+        ax.scatter(euclidean_dists_valid[base_idx], temp_corr_valid[base_idx],
                   marker='*', s=500, c='red', edgecolors='black', linewidth=2,
-                  label='Base Code 0', zorder=5)
+                  label=f'Base Code {base_code_idx}', zorder=5)
     
-    ax.set_xlabel('Temporal Correlation', fontsize=13, fontweight='bold')
-    ax.set_ylabel('Spectral Correlation', fontsize=13, fontweight='bold')
-    ax.set_title('Temporal vs Spectral Correlation', fontsize=14, fontweight='bold')
-    ax.set_xlim(lims)
-    ax.set_ylim(lims)
+    ax.set_xlabel('Euclidean Distance (Embedding Space)', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Temporal Correlation', fontsize=13, fontweight='bold')
+    ax.set_title('Temporal Correlation vs Euclidean Distance', fontsize=14, fontweight='bold')
     ax.legend(loc='best', fontsize=10)
     ax.grid(True, alpha=0.3)
-    ax.axhline(0, color='black', linestyle='-', alpha=0.2, linewidth=1)
-    ax.axvline(0, color='black', linestyle='-', alpha=0.2, linewidth=1)
+    ax.axhline(0, color='black', linestyle='--', alpha=0.4, linewidth=1)
     
-    cbar3 = plt.colorbar(scatter3, ax=ax, label='Distance')
+    cbar3 = plt.colorbar(scatter3, ax=ax, label='Code Index')
     
-    # Correlation between temporal and spectral
-    corr_temp_spec, p_temp_spec = pearsonr(temp_corr_valid, spec_corr_valid)
-    stats_text = f'Pearson r = {corr_temp_spec:.4f}\n'
-    stats_text += f'p = {p_temp_spec:.2e}'
+    # Stats box
+    metrics_temp_euclidean = compute_correlation_metrics(euclidean_dists_valid, temp_corr_valid)
+    stats_text = f'Pearson r = {metrics_temp_euclidean["pearson_r"]:.4f}\n'
+    stats_text += f'p = {metrics_temp_euclidean["pearson_p"]:.2e}\n'
+    stats_text += f'Mean corr = {np.mean(temp_corr_valid):.3f}\n'
+    stats_text += f'Std = {np.std(temp_corr_valid):.3f}'
     
-    ax.text(0.05, 0.95, stats_text, transform=ax.transAxes,
-           verticalalignment='top', fontsize=10,
+    ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
+           verticalalignment='top', fontsize=9,
            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8, edgecolor='black'))
     
     # ========================================================================
-    # PLOT 4 (Bottom-Right): Cosine vs Euclidean Distance
+    # PLOT 4 (Bottom-Right): Spectral Correlation vs Euclidean Distance
     # ========================================================================
     ax = axes[1, 1]
     
-    # Calcola distanze Euclidean
-    from sklearn.metrics.pairwise import euclidean_distances
+    scatter4 = ax.scatter(euclidean_dists_valid, spec_corr_valid, alpha=0.6, s=80,
+                         c=code_indices_valid, cmap='RdYlGn', edgecolors='black', linewidth=0.8)
     
-    base_code_idx = 1
-    base_embedding = embeddings[base_code_idx:base_code_idx+1]
+    ax.plot(euclidean_dists_valid, spec_corr_valid, 'gray', alpha=0.15, linewidth=0.5,
+           label='Connection', zorder=1)
     
-    # Euclidean distances
-    euclidean_dists = euclidean_distances(embeddings, base_embedding).flatten()
+    # Polynomial fit
+    z_poly4 = np.polyfit(euclidean_dists_valid, spec_corr_valid, 2)
+    p_poly4 = np.poly1d(z_poly4)
+    ax.plot(x_smooth3, p_poly4(x_smooth3), 'r--', linewidth=3,
+           label=f'Poly fit (deg 2)', zorder=3)
     
-    # Normalizza per confronto
-    euclidean_dists_norm = euclidean_dists / np.max(euclidean_dists)
+    # Base Code marker
+    if len(base_idx) > 0:
+        ax.scatter(euclidean_dists_valid[base_idx], spec_corr_valid[base_idx],
+                  marker='*', s=500, c='red', edgecolors='black', linewidth=2,
+                  label=f'Base Code {base_code_idx}', zorder=5)
     
-    # Filtra con la stessa mask
-    euclidean_dists_valid = euclidean_dists_norm[valid_mask]
-    
-    # Scatter: Cosine vs Euclidean (entrambi normalizzati)
-    scatter4_cosine = ax.scatter(euclidean_dists_valid, temp_corr_valid, 
-                                alpha=0.6, s=70, c='blue', 
-                                edgecolors='black', linewidth=0.8,
-                                label='Cosine Distance')
-    
-    scatter4_euclidean = ax.scatter(euclidean_dists_valid, temp_corr_valid,
-                                   alpha=0.6, s=70, c='orange',
-                                   edgecolors='black', linewidth=0.8, marker='s',
-                                   label='Euclidean Distance')
-    
-    # Nota: In realtà stiamo plottando ENTRAMBI contro temporal correlation
-    # Per fare comparison corretta, plottiamo cosine vs euclidean direttamente
-    ax.clear()
-    
-    scatter4 = ax.scatter(distances_valid, euclidean_dists_valid, alpha=0.6, s=80,
-                         c=temp_corr_valid, cmap='RdYlGn', vmin=-1, vmax=1,
-                         edgecolors='black', linewidth=0.8)
-    
-    # Identity line (se normalizzati uguali)
-    max_dist = max(distances_valid.max(), euclidean_dists_valid.max())
-    ax.plot([0, max_dist], [0, max_dist], 'k--', alpha=0.4, linewidth=2, 
-           label='y=x (Perfect agreement)', zorder=1)
-    
-    ax.set_xlabel('Cosine Distance', fontsize=13, fontweight='bold')
-    ax.set_ylabel('Euclidean Distance (normalized)', fontsize=13, fontweight='bold')
-    ax.set_title('Comparison: Cosine vs Euclidean Distance', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Euclidean Distance (Embedding Space)', fontsize=13, fontweight='bold')
+    ax.set_ylabel('Spectral Correlation', fontsize=13, fontweight='bold')
+    ax.set_title('Spectral Correlation vs Euclidean Distance', fontsize=14, fontweight='bold')
     ax.legend(loc='best', fontsize=10)
     ax.grid(True, alpha=0.3)
+    ax.axhline(0, color='black', linestyle='--', alpha=0.4, linewidth=1)
     
-    cbar4 = plt.colorbar(scatter4, ax=ax, label='Temporal Correlation')
+    cbar4 = plt.colorbar(scatter4, ax=ax, label='Code Index')
     
-    # Correlation between cosine and euclidean
-    corr_dists, p_dists = pearsonr(distances_valid, euclidean_dists_valid)
-    stats_text = f'Corr(cosine, euclidean):\n'
-    stats_text += f'Pearson r = {corr_dists:.4f}\n'
-    stats_text += f'p = {p_dists:.2e}'
+    # Stats box
+    metrics_spec_euclidean = compute_correlation_metrics(euclidean_dists_valid, spec_corr_valid)
+    stats_text = f'Pearson r = {metrics_spec_euclidean["pearson_r"]:.4f}\n'
+    stats_text += f'p = {metrics_spec_euclidean["pearson_p"]:.2e}\n'
+    stats_text += f'Mean corr = {np.mean(spec_corr_valid):.3f}\n'
+    stats_text += f'Std = {np.std(spec_corr_valid):.3f}'
     
     ax.text(0.02, 0.98, stats_text, transform=ax.transAxes,
            verticalalignment='top', fontsize=9,
@@ -591,7 +576,7 @@ def visualize_code0_correlation_vs_distance(results, embeddings):
     # ========================================================================
     # Suptitle e finalizzazione
     # ========================================================================
-    plt.suptitle('Correlation vs Distance from Base Code 0', 
+    plt.suptitle(f'Correlation vs Distance from Base Code {base_code_idx}', 
                 fontsize=16, fontweight='bold', y=0.995)
     plt.tight_layout()
     
@@ -602,8 +587,10 @@ def visualize_code0_correlation_vs_distance(results, embeddings):
     print(f"✅ 4-plot figure creata per W&B")
     
     return wandb_images, {
-        'metrics_temporal': metrics_temp,
-        'metrics_spectral': metrics_spec,
+        'metrics_temp_cosine': metrics_temp_cosine,
+        'metrics_spec_cosine': metrics_spec_cosine,
+        'metrics_temp_euclidean': metrics_temp_euclidean,
+        'metrics_spec_euclidean': metrics_spec_euclidean,
     }
 
 
@@ -622,6 +609,7 @@ def main():
     print(f"   Base code: {BASE_CODE}")
     print(f"   Batch size (decoding): {BATCH_SIZE}")
     print(f"   ✨ Mode: WANDB ONLY (no local saves)")
+    print(f"   📊 4 Plots: Temp vs Cosine, Spec vs Cosine, Temp vs Euclidean, Spec vs Euclidean")
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"\n💻 Device: {device}")
@@ -637,7 +625,7 @@ def main():
             "batch_size": BATCH_SIZE,
             **MODEL_CONFIG
         },
-        tags=["correlation", "distance-analysis", "code0", "wandb-only"]
+        tags=["correlation", "distance-analysis", "cosine-euclidean", "wandb-only"]
     )
     
     print(f"✅ W&B inizializzato: {wandb.run.url}")
@@ -654,9 +642,9 @@ def main():
         print(f"   Analizzando codice base: {BASE_CODE}")
         print(f"   Altri codici da confrontare: {num_codes - 1}")
         
-        # 3. Analizza codice 0
+        # 3. Analizza codice base
         print(f"\n{'='*70}")
-        print(f"📊 ANALISI CODICE BASE 0")
+        print(f"📊 ANALISI CODICE BASE {BASE_CODE}")
         print(f"{'='*70}")
         
         results = analyze_code0_correlations_vs_distance(
@@ -672,8 +660,8 @@ def main():
             'std_temporal_corr': np.nanstd(results['temporal_correlations']),
             'mean_spectral_corr': np.nanmean(results['spectral_correlations']),
             'std_spectral_corr': np.nanstd(results['spectral_correlations']),
-            'mean_distance': np.mean(results['distances']),
-            'std_distance': np.std(results['distances']),
+            'mean_cosine_distance': np.mean(results['distances']),
+            'std_cosine_distance': np.std(results['distances']),
         })
         
         # 5. Crea visualizzazioni (WANDB ONLY)
@@ -688,22 +676,23 @@ def main():
         wandb.log(wandb_images)
         print(f"✅ 1 immagine (4 sub-plots) caricata su W&B!")
         print(f"   - correlation_vs_distance_4plots:")
-        print(f"     • Top-Left: Temporal vs Cosine Distance")
-        print(f"     • Top-Right: Spectral vs Cosine Distance")
-        print(f"     • Bottom-Left: Temporal vs Spectral")
-        print(f"     • Bottom-Right: Cosine vs Euclidean Distance")
+        print(f"     • Top-Left: Temporal Correlation vs Cosine Distance")
+        print(f"     • Top-Right: Spectral Correlation vs Cosine Distance")
+        print(f"     • Bottom-Left: Temporal Correlation vs Euclidean Distance")
+        print(f"     • Bottom-Right: Spectral Correlation vs Euclidean Distance")
         
         # 7. Log statistiche finali
-        metrics_temp = viz_stats['metrics_temporal']
-        metrics_spec = viz_stats['metrics_spectral']
-        
         wandb.log({
-            'temporal_pearson_r': metrics_temp['pearson_r'],
-            'temporal_spearman_r': metrics_temp['spearman_r'],
-            'temporal_kendall_tau': metrics_temp['kendall_tau'],
-            'spectral_pearson_r': metrics_spec['pearson_r'],
-            'spectral_spearman_r': metrics_spec['spearman_r'],
-            'spectral_kendall_tau': metrics_spec['kendall_tau'],
+            # Cosine distance metrics
+            'temp_cosine_pearson_r': viz_stats['metrics_temp_cosine']['pearson_r'],
+            'temp_cosine_spearman_r': viz_stats['metrics_temp_cosine']['spearman_r'],
+            'spec_cosine_pearson_r': viz_stats['metrics_spec_cosine']['pearson_r'],
+            'spec_cosine_spearman_r': viz_stats['metrics_spec_cosine']['spearman_r'],
+            # Euclidean distance metrics
+            'temp_euclidean_pearson_r': viz_stats['metrics_temp_euclidean']['pearson_r'],
+            'temp_euclidean_spearman_r': viz_stats['metrics_temp_euclidean']['spearman_r'],
+            'spec_euclidean_pearson_r': viz_stats['metrics_spec_euclidean']['pearson_r'],
+            'spec_euclidean_spearman_r': viz_stats['metrics_spec_euclidean']['spearman_r'],
         })
         
         # 8. Summary
@@ -711,13 +700,13 @@ def main():
         print("📊 STATISTICHE FINALI")
         print(f"{'='*70}")
         
-        print(f"\n   🔵 Temporal:")
-        print(f"      Pearson r: {metrics_temp['pearson_r']:.4f} (p={metrics_temp['pearson_p']:.4e})")
-        print(f"      Spearman ρ: {metrics_temp['spearman_r']:.4f}")
+        print(f"\n   🔵 COSINE DISTANCE:")
+        print(f"      Temporal - Pearson r: {viz_stats['metrics_temp_cosine']['pearson_r']:.4f}")
+        print(f"      Spectral - Pearson r: {viz_stats['metrics_spec_cosine']['pearson_r']:.4f}")
         
-        print(f"\n   🔴 Spectral:")
-        print(f"      Pearson r: {metrics_spec['pearson_r']:.4f} (p={metrics_spec['pearson_p']:.4e})")
-        print(f"      Spearman ρ: {metrics_spec['spearman_r']:.4f}")
+        print(f"\n   🟢 EUCLIDEAN DISTANCE:")
+        print(f"      Temporal - Pearson r: {viz_stats['metrics_temp_euclidean']['pearson_r']:.4f}")
+        print(f"      Spectral - Pearson r: {viz_stats['metrics_spec_euclidean']['pearson_r']:.4f}")
         
         print(f"\n{'='*70}")
         print("✅ ANALISI COMPLETATA!")
