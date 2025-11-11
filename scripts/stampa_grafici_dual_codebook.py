@@ -51,8 +51,8 @@ MODEL_CONFIG = {
     'num_hiddens': 128,
     'num_residual_layers': 3,
     'num_residual_hiddens': 64,
-    'num_embeddings': 512,
-    'embedding_dim': 128,
+    'num_embeddings': 32,
+    'embedding_dim': 32,
     'commitment_cost': 0.25,
     'dropout_rate': 0.1,
     'use_quantizer': True,
@@ -304,35 +304,50 @@ def plot_umap_dual_comparison(umap_active, umap_inactive, chars_active, chars_in
 
 def plot_hierarchical_clustering_dual(emb_active, emb_inactive):
     """
-    Dendrogrammi gerarchici separati per i due codebook
+    Dendrogramma gerarchico combinato per i due codebook
     """
-    fig, axes = plt.subplots(1, 2, figsize=(18, 6))
-    fig.suptitle('🌳 Hierarchical Clustering: Dual Codebook', 
+    fig, ax = plt.subplots(1, 1, figsize=(20, 8))
+    fig.suptitle('🌳 Hierarchical Clustering: Combined Dual Codebook', 
                  fontsize=16, fontweight='bold')
     
-    # 1. Active codebook
-    distances_active = pdist(emb_active, metric='cosine')
-    linkage_active = linkage(distances_active, method='ward')
+    # Combina i due codebook con etichette
+    combined_embeddings = np.vstack([emb_active, emb_inactive])
+    n_active = len(emb_active)
+    n_inactive = len(emb_inactive)
     
-    dendrogram(linkage_active, ax=axes[0], color_threshold=0.5*max(linkage_active[:,2]))
-    axes[0].set_title('Active Codebook Dendrogram', fontsize=13, fontweight='bold')
-    axes[0].set_xlabel('Code Index')
-    axes[0].set_ylabel('Distance')
-    axes[0].grid(True, alpha=0.3)
+    # Calcola distanze e linkage sul dataset combinato
+    distances_combined = pdist(combined_embeddings, metric='cosine')
+    linkage_combined = linkage(distances_combined, method='ward')
     
-    # 2. Inactive codebook
-    distances_inactive = pdist(emb_inactive, metric='cosine')
-    linkage_inactive = linkage(distances_inactive, method='ward')
+    # Crea il dendrogramma
+    dendro = dendrogram(
+        linkage_combined, 
+        ax=ax, 
+        color_threshold=0.5*max(linkage_combined[:,2]),
+        no_labels=True  # Disabilita le etichette numeriche di default
+    )
     
-    dendrogram(linkage_inactive, ax=axes[1], color_threshold=0.5*max(linkage_inactive[:,2]))
-    axes[1].set_title('Inactive Codebook Dendrogram', fontsize=13, fontweight='bold')
-    axes[1].set_xlabel('Code Index')
-    axes[1].set_ylabel('Distance')
-    axes[1].grid(True, alpha=0.3)
+    ax.set_title('Combined Codebook Dendrogram (Red: Active, Blue: Inactive)', 
+                 fontsize=13, fontweight='bold')
+    ax.set_xlabel('Code Index (0-511: Active | 512-1023: Inactive)', fontsize=11)
+    ax.set_ylabel('Distance', fontsize=11)
+    ax.grid(True, alpha=0.3, axis='y')
+    
+    # Aggiungi linee verticali per separare visivamente i due codebook
+    ax.axvline(x=n_active * 10, color='gray', linestyle='--', 
+               linewidth=2, alpha=0.5, label='Active/Inactive boundary')
+    ax.legend()
+    
+    # Aggiungi annotazioni
+    ax.text(0.25, 0.95, 'ACTIVE CODEBOOK', 
+            transform=ax.transAxes, fontsize=12, fontweight='bold',
+            color='red', ha='center')
+    ax.text(0.75, 0.95, 'INACTIVE CODEBOOK', 
+            transform=ax.transAxes, fontsize=12, fontweight='bold',
+            color='blue', ha='center')
     
     plt.tight_layout()
     return fig
-
 
 def plot_example_reconstructions(decoded_active, decoded_inactive, n_examples=5):
     """

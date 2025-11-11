@@ -53,11 +53,11 @@ from models.vqvae import CalciumVQVAE
 # CONFIGURAZIONE
 # ============================================================================
 
-CHECKPOINT_PATH = "results/best_single_neuron_model_32.pth"
+CHECKPOINT_PATH = "results/dual_codebook/best_dual_model.pth"
 
 # W&B Configuration
 WANDB_PROJECT = "calcium-vqvae-codebook-umap-analysis"
-WANDB_RUN_NAME = f"umap-analysis-32codes-3.0"
+WANDB_RUN_NAME = f"umap-analysis-512-diviso-2"
 
 MODEL_CONFIG = {
     'num_neurons': 1,
@@ -66,7 +66,7 @@ MODEL_CONFIG = {
     'num_residual_hiddens': 64,
     'num_embeddings': 32,
     'embedding_dim': 32,
-    'commitment_cost': 3.0,
+    'commitment_cost': 0.25,
     'dropout_rate': 0.1,
     'use_quantizer': True,
 }

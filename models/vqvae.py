@@ -3,7 +3,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from models.encoder import CalciumEncoder
-from models.quantizer import VectorQuantizer
+from models.quantizer import ImprovedVectorQuantizer
+
+# -----------------------------------------------------------------------------
+# CalciumVQVAE Model
+# -----------------------------------------------------------------------------
+# Implementa una variante 1D del VQ-VAE ottimizzata per dati di imaging al calcio.
+# - Encoder: comprime l'attività neuronale in rappresentazioni latenti.
+# - Quantizer (ImprovedVectorQuantizer): converte i vettori continui in codici discreti.
+# - Decoder: ricostruisce i segnali originali tramite convoluzioni trasposte.
+# - Applica layer normalization e clipping più permissivo (-10, +10) per stabilizzare
+#   la quantizzazione e prevenire valori anomali.
+# - Include dropout nei layer di decodifica per ridurre overfitting.
+# - Supporta disattivazione del quantizer (use_quantizer=False) per test o ablation.
+# - Restituisce sempre 5 valori: (vq_loss, x_recon, perplexity, quantized, encodings).
+# - Test finale verifica correttezza di forma, ricostruzione e utilizzo del codebook.
+# ----------------------------------------------------------------------------- 
 
 
 class CalciumDecoder(nn.Module):
@@ -91,8 +106,6 @@ class CalciumVQVAE(nn.Module):
         )
         
         # 🔥 USE ImprovedVectorQuantizer
-        from models.quantizer import ImprovedVectorQuantizer
-        
         self.vector_quantization = ImprovedVectorQuantizer(
             num_embeddings, 
             embedding_dim, 

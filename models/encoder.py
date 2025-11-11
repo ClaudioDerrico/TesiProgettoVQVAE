@@ -5,6 +5,7 @@ import numpy as np
 from models.residual import ResidualStack
 
 
+
 class Encoder(nn.Module):
     """
     Original 2D Encoder for images.
@@ -63,8 +64,20 @@ class ImprovedResidualBlock(nn.Module):
 
 class CalciumEncoder(nn.Module):
     """
-    1D Encoder optimized for calcium imaging data.
+    Encoder 1D per calcium imaging: comprime segnali temporali di 4x.
     
+    Architettura:
+    - Conv1 (k=7, s=1): 1→32 canali, estrae features locali (60→60 timesteps)
+    - Conv2 (k=5, s=2): 32→64 canali, prima compressione temporale (60→30 timesteps)
+    - Conv3 (k=3, s=2): 64→128 canali, seconda compressione (30→15 timesteps)
+    - ResidualStack (3 blocchi): raffina features con bottleneck (128→64→128)
+    
+    Flusso: (B,1,60) → (B,32,60) → (B,64,30) → (B,128,15) → (B,128,15)
+            input     features    compress2x  compress2x   raffinato
+    
+    Compressione totale: 4x temporale (60→15), apprende 128 features per timestep.
+    Ogni timestep output rappresenta ~4 timesteps input.
+
     Inputs:
     - in_channels : number of neurons (input channels)
     - num_hiddens : hidden layer dimension
