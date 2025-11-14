@@ -12,6 +12,17 @@ import numpy as np
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# -----------------------------------------------------------------------------
+# ImprovedVectorQuantizer
+# -----------------------------------------------------------------------------
+# Versione migliorata del Vector Quantizer per VQ-VAE.
+# - Inizializzazione controllata con Xavier e scaling ridotto.
+# - Aggiornamento delle embedding via EMA (Exponential Moving Average).
+# - Supporto sia per input 1D (B,C,T) che 2D (B,C,H,W).
+# - Restituisce sempre 5 valori: (loss, quantized, perplexity, encodings, indices).
+# - Tiene traccia dell’utilizzo dei codici nel codebook.
+# Include anche la classe VectorQuantizer originale per compatibilità retroattiva.
+# ----------------------------------------------------------------------------- 
 
 class ImprovedVectorQuantizer(nn.Module):
     """
