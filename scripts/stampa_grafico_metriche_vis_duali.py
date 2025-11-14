@@ -13,7 +13,7 @@ from pathlib import Path
 # CONFIGURAZIONE
 # ============================================================================
 
-OUTPUT_DIR = Path(".")
+OUTPUT_DIR = Path(r"C:\Users\Claudio\Desktop\TesiProgettoVQVAE\metriche_vis_duali")
 
 # Mapping session types based on position in results
 # First 3 sessions: VISP
@@ -40,15 +40,15 @@ METRICS_DATA = {
     "use_quantizer": True
   },
   "sessions": [
-    { "id": 501559087, "mse_mean": 0.003831, "corr_mean": 0.7683, "samples": 2277 },
-    { "id": 501498760, "mse_mean": 0.001166, "corr_mean": 0.7020, "samples": 2282 },
-    { "id": 501836392, "mse_mean": 0.000930, "corr_mean": 0.7482, "samples": 2315 },
-    { "id": 501474098, "mse_mean": 0.001694, "corr_mean": 0.7387, "samples": 2114 },
-    { "id": 663488086, "mse_mean": 0.000858, "corr_mean": 0.7288, "samples": 2348 },
-    { "id": 647593956, "mse_mean": 0.002090, "corr_mean": 0.6937, "samples": 2486 },
-    { "id": 627823723, "mse_mean": 0.001445, "corr_mean": 0.6709, "samples": 2481 },
-    { "id": 569494121, "mse_mean": 0.003935, "corr_mean": 0.6826, "samples": 2486 },
-    { "id": 566523247, "mse_mean": 0.001418, "corr_mean": 0.6654, "samples": 2486 }
+    {"id": 501559087, "mse_mean": 0.00526, "corr_mean": 0.7354, "samples": 2277},
+    {"id": 501498760, "mse_mean": 0.001351, "corr_mean": 0.6647, "samples": 2282},
+    {"id": 501836392, "mse_mean": 0.001209, "corr_mean": 0.7149, "samples": 2315},
+    {"id": 501474098, "mse_mean": 0.00243, "corr_mean": 0.7054, "samples": 2114},
+    {"id": 663488086, "mse_mean": 0.001003, "corr_mean": 0.6932, "samples": 2348},
+    {"id": 647593956, "mse_mean": 0.002468, "corr_mean": 0.6518, "samples": 2486},
+    {"id": 627823723, "mse_mean": 0.001666, "corr_mean": 0.6304, "samples": 2481},
+    {"id": 569494121, "mse_mean": 0.004556, "corr_mean": 0.6431, "samples": 2486},
+    {"id": 566523247, "mse_mean": 0.001564, "corr_mean": 0.626, "samples": 2486}
   ]
 },
     32: {
@@ -64,16 +64,16 @@ METRICS_DATA = {
     "use_quantizer": True
   },
   "sessions": [
-    { "id": 501559087, "mse_mean": 0.003056, "corr_mean": 0.7911, "samples": 2277 },
-    { "id": 501498760, "mse_mean": 0.001042, "corr_mean": 0.7292, "samples": 2282 },
-    { "id": 501836392, "mse_mean": 0.000791, "corr_mean": 0.7763, "samples": 2315 },
-    { "id": 501474098, "mse_mean": 0.001340, "corr_mean": 0.7648, "samples": 2114 },
-    { "id": 663488086, "mse_mean": 0.000731, "corr_mean": 0.7577, "samples": 2348 },
-    { "id": 647593956, "mse_mean": 0.001911, "corr_mean": 0.7213, "samples": 2486 },
-    { "id": 627823723, "mse_mean": 0.001319, "corr_mean": 0.7014, "samples": 2481 },
-    { "id": 569494121, "mse_mean": 0.003571, "corr_mean": 0.7106, "samples": 2486 },
-    { "id": 566523247, "mse_mean": 0.001298, "corr_mean": 0.6959, "samples": 2486 }
-  ]
+  {"id": 501559087, "mse_mean": 0.004199, "corr_mean": 0.7672, "samples": 2277},
+  {"id": 501498760, "mse_mean": 0.001188, "corr_mean": 0.7026, "samples": 2282},
+  {"id": 501836392, "mse_mean": 0.000967, "corr_mean": 0.7504, "samples": 2315},
+  {"id": 501474098, "mse_mean": 0.001872, "corr_mean": 0.7393, "samples": 2114},
+  {"id": 663488086, "mse_mean": 0.000855, "corr_mean": 0.7308, "samples": 2348},
+  {"id": 647593956, "mse_mean": 0.002086, "corr_mean": 0.6917, "samples": 2486},
+  {"id": 627823723, "mse_mean": 0.001489, "corr_mean": 0.6705, "samples": 2481},
+  {"id": 569494121, "mse_mean": 0.003987, "corr_mean": 0.6785, "samples": 2486},
+  {"id": 566523247, "mse_mean": 0.001441, "corr_mean": 0.6656, "samples": 2486}
+]
 },
     64: {
   "model_config": {
@@ -89,16 +89,17 @@ METRICS_DATA = {
   },
   "session_results": {
   "sessions": [
-    { "id": 501559087, "mse_mean": 0.003078, "corr_mean": 0.8928, "samples": 2277 },
-    { "id": 501498760, "mse_mean": 0.000598, "corr_mean": 0.8732, "samples": 2282 },
-    { "id": 501836392, "mse_mean": 0.000593, "corr_mean": 0.8747, "samples": 2315 },
-    { "id": 501474098, "mse_mean": 0.001146, "corr_mean": 0.8836, "samples": 2114 },
-    { "id": 663488086, "mse_mean": 0.000509, "corr_mean": 0.8709, "samples": 2348 },
-    { "id": 647593956, "mse_mean": 0.001200, "corr_mean": 0.8728, "samples": 2486 },
-    { "id": 627823723, "mse_mean": 0.000717, "corr_mean": 0.8691, "samples": 2481 },
-    { "id": 569494121, "mse_mean": 0.002425, "corr_mean": 0.8598, "samples": 2486 },
-    { "id": 566523247, "mse_mean": 0.000661, "corr_mean": 0.8673, "samples": 2486 }
-  ]
+  {"id": 501559087, "mse_mean": 0.00351, "corr_mean": 0.8391, "samples": 2277},
+  {"id": 501498760, "mse_mean": 0.000887, "corr_mean": 0.8, "samples": 2282},
+  {"id": 501836392, "mse_mean": 0.000811, "corr_mean": 0.8241, "samples": 2315},
+  {"id": 501474098, "mse_mean": 0.001428, "corr_mean": 0.8222, "samples": 2114},
+  {"id": 663488086, "mse_mean": 0.000679, "corr_mean": 0.8114, "samples": 2348},
+  {"id": 647593956, "mse_mean": 0.001599, "corr_mean": 0.7975, "samples": 2486},
+  {"id": 627823723, "mse_mean": 0.001053, "corr_mean": 0.7869, "samples": 2481},
+  {"id": 569494121, "mse_mean": 0.003031, "corr_mean": 0.7866, "samples": 2486},
+  {"id": 566523247, "mse_mean": 0.001, "corr_mean": 0.7831, "samples": 2486}
+]
+
 }
 },
     128: {
@@ -114,16 +115,17 @@ METRICS_DATA = {
     "use_quantizer": True
   },
   "session_results": [
-    { "id": 501559087, "mse_mean": 0.002347, "corr_mean": 0.9188, "samples": 2277 },
-    { "id": 501498760, "mse_mean": 0.000453, "corr_mean": 0.9047, "samples": 2282 },
-    { "id": 501836392, "mse_mean": 0.000476, "corr_mean": 0.9034, "samples": 2315 },
-    { "id": 501474098, "mse_mean": 0.000880, "corr_mean": 0.9115, "samples": 2114 },
-    { "id": 663488086, "mse_mean": 0.000400, "corr_mean": 0.8997, "samples": 2348 },
-    { "id": 647593956, "mse_mean": 0.000877, "corr_mean": 0.9056, "samples": 2486 },
-    { "id": 627823723, "mse_mean": 0.000535, "corr_mean": 0.9018, "samples": 2481 },
-    { "id": 569494121, "mse_mean": 0.001911, "corr_mean": 0.8941, "samples": 2486 },
-    { "id": 566523247, "mse_mean": 0.000500, "corr_mean": 0.9012, "samples": 2486 }
-  ]
+  {"id": 501559087, "mse_mean": 0.003346, "corr_mean": 0.8953, "samples": 2277},
+  {"id": 501498760, "mse_mean": 0.000585, "corr_mean": 0.878, "samples": 2282},
+  {"id": 501836392, "mse_mean": 0.00064, "corr_mean": 0.8769, "samples": 2315},
+  {"id": 501474098, "mse_mean": 0.001239, "corr_mean": 0.8861, "samples": 2114},
+  {"id": 663488086, "mse_mean": 0.000521, "corr_mean": 0.8728, "samples": 2348},
+  {"id": 647593956, "mse_mean": 0.001097, "corr_mean": 0.878, "samples": 2486},
+  {"id": 627823723, "mse_mean": 0.000739, "corr_mean": 0.8744, "samples": 2481},
+  {"id": 569494121, "mse_mean": 0.002407, "corr_mean": 0.8642, "samples": 2486},
+  {"id": 566523247, "mse_mean": 0.000628, "corr_mean": 0.8726, "samples": 2486}
+]
+
 },
     256: {
   "model_config": {
@@ -138,16 +140,40 @@ METRICS_DATA = {
     "use_quantizer": True
   },
   "session_results": [
-    { "id": 501559087, "mse_mean": 0.001759, "corr_mean": 0.9340, "samples": 2277 },
-    { "id": 501498760, "mse_mean": 0.000381, "corr_mean": 0.9209, "samples": 2282 },
-    { "id": 501836392, "mse_mean": 0.000411, "corr_mean": 0.9204, "samples": 2315 },
-    { "id": 501474098, "mse_mean": 0.000659, "corr_mean": 0.9261, "samples": 2114 },
-    { "id": 663488086, "mse_mean": 0.000320, "corr_mean": 0.9169, "samples": 2348 },
-    { "id": 647593956, "mse_mean": 0.000690, "corr_mean": 0.9228, "samples": 2486 },
-    { "id": 627823723, "mse_mean": 0.000442, "corr_mean": 0.9190, "samples": 2481 },
-    { "id": 569494121, "mse_mean": 0.001528, "corr_mean": 0.9114, "samples": 2486 },
-    { "id": 566523247, "mse_mean": 0.000413, "corr_mean": 0.9181, "samples": 2486 }
-  ]
+  {"id": 501559087, "mse_mean": 0.003157, "corr_mean": 0.9194, "samples": 2277},
+  {"id": 501498760, "mse_mean": 0.000455, "corr_mean": 0.9073, "samples": 2282},
+  {"id": 501836392, "mse_mean": 0.000496, "corr_mean": 0.9049, "samples": 2315},
+  {"id": 501474098, "mse_mean": 0.001006, "corr_mean": 0.9119, "samples": 2114},
+  {"id": 663488086, "mse_mean": 0.000419, "corr_mean": 0.901, "samples": 2348},
+  {"id": 647593956, "mse_mean": 0.000982, "corr_mean": 0.9094, "samples": 2486},
+  {"id": 627823723, "mse_mean": 0.000534, "corr_mean": 0.9063, "samples": 2481},
+  {"id": 569494121, "mse_mean": 0.001968, "corr_mean": 0.8936, "samples": 2486},
+  {"id": 566523247, "mse_mean": 0.000481, "corr_mean": 0.9053, "samples": 2486}
+]
+},
+512: {
+  "model_config": {
+    "num_neurons": 1,
+    "num_hiddens": 128,
+    "num_residual_layers": 3,
+    "num_residual_hiddens": 64,
+    "num_embeddings": 512,
+    "embedding_dim": 128,
+    "commitment_cost": 0.25,
+    "dropout_rate": 0.1,
+    "use_quantizer": True
+  },
+  "session_results":[
+  {"id": 501559087, "mse_mean": 0.002304, "corr_mean": 0.9347, "samples": 2277},
+  {"id": 501498760, "mse_mean": 0.000381, "corr_mean": 0.9241, "samples": 2282},
+  {"id": 501836392, "mse_mean": 0.000408, "corr_mean": 0.9228, "samples": 2315},
+  {"id": 501474098, "mse_mean": 0.000821, "corr_mean": 0.9285, "samples": 2114},
+  {"id": 663488086, "mse_mean": 0.000342, "corr_mean": 0.9196, "samples": 2348},
+  {"id": 647593956, "mse_mean": 0.000756, "corr_mean": 0.926, "samples": 2486},
+  {"id": 627823723, "mse_mean": 0.000453, "corr_mean": 0.9227, "samples": 2481},
+  {"id": 569494121, "mse_mean": 0.001513, "corr_mean": 0.9138, "samples": 2486},
+  {"id": 566523247, "mse_mean": 0.000397, "corr_mean": 0.9217, "samples": 2486}
+]
 },
     1024: {
   "model_config": {
@@ -162,16 +188,17 @@ METRICS_DATA = {
     "use_quantizer": True
   },
   "session_results": [
-    { "id": 501559087, "mse_mean": 0.001303, "corr_mean": 0.9535, "samples": 2277 },
-    { "id": 501498760, "mse_mean": 0.000270, "corr_mean": 0.9442, "samples": 2282 },
-    { "id": 501836392, "mse_mean": 0.000285, "corr_mean": 0.9426, "samples": 2315 },
-    { "id": 501474098, "mse_mean": 0.000457, "corr_mean": 0.9472, "samples": 2114 },
-    { "id": 663488086, "mse_mean": 0.000232, "corr_mean": 0.9403, "samples": 2348 },
-    { "id": 647593956, "mse_mean": 0.000481, "corr_mean": 0.9458, "samples": 2486 },
-    { "id": 627823723, "mse_mean": 0.000310, "corr_mean": 0.9438, "samples": 2481 },
-    { "id": 569494121, "mse_mean": 0.001129, "corr_mean": 0.9330, "samples": 2486 },
-    { "id": 566523247, "mse_mean": 0.000292, "corr_mean": 0.9427, "samples": 2486 }
-  ]
+  {"id": 501559087, "mse_mean": 0.001818, "corr_mean": 0.9501, "samples": 2277},
+  {"id": 501498760, "mse_mean": 0.000292, "corr_mean": 0.9418, "samples": 2282},
+  {"id": 501836392, "mse_mean": 0.000322, "corr_mean": 0.9408, "samples": 2315},
+  {"id": 501474098, "mse_mean": 0.000626, "corr_mean": 0.945, "samples": 2114},
+  {"id": 663488086, "mse_mean": 0.000258, "corr_mean": 0.9384, "samples": 2348},
+  {"id": 647593956, "mse_mean": 0.000567, "corr_mean": 0.9435, "samples": 2486},
+  {"id": 627823723, "mse_mean": 0.000353, "corr_mean": 0.941, "samples": 2481},
+  {"id": 569494121, "mse_mean": 0.001221, "corr_mean": 0.9319, "samples": 2486},
+  {"id": 566523247, "mse_mean": 0.000308, "corr_mean": 0.9402, "samples": 2486}
+]
+
 },
     2048: {
   "model_config": {
@@ -185,17 +212,18 @@ METRICS_DATA = {
   "dropout_rate": 0.1,
   "use_quantizer": True
 },
-  "session_results": [
-    {"session_id": 501559087, "mse_mean": 0.001522, "corr_mean": 0.9415, "samples": 2277},
-    {"session_id": 501498760, "mse_mean": 0.000331, "corr_mean": 0.9303, "samples": 2282},
-    {"session_id": 501836392, "mse_mean": 0.000331, "corr_mean": 0.9289, "samples": 2315},
-    {"session_id": 501474098, "mse_mean": 0.000542, "corr_mean": 0.9348, "samples": 2114},
-    {"session_id": 663488086, "mse_mean": 0.000283, "corr_mean": 0.9259, "samples": 2348},
-    {"session_id": 647593956, "mse_mean": 0.000588, "corr_mean": 0.9326, "samples": 2486},
-    {"session_id": 627823723, "mse_mean": 0.000382, "corr_mean": 0.9297, "samples": 2481},
-    {"session_id": 569494121, "mse_mean": 0.001304, "corr_mean": 0.9217, "samples": 2486},
-    {"session_id": 566523247, "mse_mean": 0.000362, "corr_mean": 0.9286, "samples": 2486}
-  ]
+  "session_results":[
+  {"id": 501559087, "mse_mean": 0.001383, "corr_mean": 0.9581, "samples": 2277},
+  {"id": 501498760, "mse_mean": 0.000246, "corr_mean": 0.9502, "samples": 2282},
+  {"id": 501836392, "mse_mean": 0.000263, "corr_mean": 0.9487, "samples": 2315},
+  {"id": 501474098, "mse_mean": 0.000481, "corr_mean": 0.9528, "samples": 2114},
+  {"id": 663488086, "mse_mean": 0.000215, "corr_mean": 0.9464, "samples": 2348},
+  {"id": 647593956, "mse_mean": 0.000463, "corr_mean": 0.9519, "samples": 2486},
+  {"id": 627823723, "mse_mean": 0.000284, "corr_mean": 0.9498, "samples": 2481},
+  {"id": 569494121, "mse_mean": 0.001039, "corr_mean": 0.94, "samples": 2486},
+  {"id": 566523247, "mse_mean": 0.000266, "corr_mean": 0.9491, "samples": 2486}
+]
+
 }
 }
 

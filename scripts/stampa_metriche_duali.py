@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Script per testare un modello SINGLE NEURON su sessioni e salvare metriche in JSON.
+Script per testare un modello DUAL-CODEBOOK SINGLE NEURON su sessioni e salvare metriche in JSON.
 
-Salva corr_mean e mse_mean per ogni sessione in formato JSON.
+Salva SOLO corr_mean, mse_mean e samples per ogni sessione in formato JSON compatto.
 
 Uso:
-    python scripts/test_and_save_metrics.py
+    python scripts/stampa_metriche_dual.py
 """
 
 import sys
@@ -21,25 +21,27 @@ from torch.utils.data import DataLoader
 from scipy.stats import pearsonr
 from datasets.calcium import UnifiedMultiSessionDataset
 
-from models.vqvae import CalciumVQVAE
+from models.dual_vqvae import DualCalciumVQVAE
 from datasets.calcium import TEST_SESSION_IDS
 
 # ============================================================================
 # CONFIGURAZIONE - MODIFICA QUI
 # ============================================================================
 
-CHECKPOINT_PATH = "results/dual_codebook/best_dual_model_512.pth"  # ✅ MODIFICA QUESTO
+CHECKPOINT_PATH = "results/dual_codebook/best_dual_model_2048.pth"  # ✅ MODIFICA QUESTO
 
 MODEL_CONFIG = {
     'num_neurons': 1,
     'num_hiddens': 128,
     'num_residual_layers': 3,
     'num_residual_hiddens': 64,
-    'num_embeddings': 256,
-    'embedding_dim': 64,
+    'num_embeddings': 2048,
+    'embedding_dim': 128,
     'commitment_cost': 0.25,
-    'dropout_rate': 0.1,
+    'dropout_rate': 0.0,
     'use_quantizer': True,
+    'threshold': 0.0,
+    'threshold_type': 'adaptive',
 }
 
 # Sessioni da testare (modifica se necessario)
@@ -54,11 +56,11 @@ STRIDE = 50
 # FUNZIONI
 # ============================================================================
 
-def load_trained_model(checkpoint_path, config, device):
-    """Carica il modello dai pesi salvati"""
-    print(f"🔄 Caricando modello da: {checkpoint_path}")
+def load_trained_dual_model(checkpoint_path, config, device):
+    """Carica il modello dual-codebook dai pesi salvati"""
+    print(f"🔄 Caricando modello DUAL-CODEBOOK da: {checkpoint_path}")
     
-    model = CalciumVQVAE(
+    model = DualCalciumVQVAE(
         num_neurons=config['num_neurons'],
         num_hiddens=config['num_hiddens'],
         num_residual_layers=config['num_residual_layers'],
@@ -67,7 +69,9 @@ def load_trained_model(checkpoint_path, config, device):
         embedding_dim=config['embedding_dim'],
         commitment_cost=config['commitment_cost'],
         dropout_rate=config.get('dropout_rate', 0.0),
-        use_quantizer=config.get('use_quantizer', True)
+        use_quantizer=config.get('use_quantizer', True),
+        threshold=config.get('threshold', 0.0),
+        threshold_type=config.get('threshold_type', 'adaptive')
     )
     
     checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -88,9 +92,9 @@ def load_trained_model(checkpoint_path, config, device):
     return model
 
 
-def evaluate_session(model, session_id, device, window_size, stride):
+def evaluate_session_dual(model, session_id, device, window_size, stride):
     """
-    Valuta il modello su una specifica sessione e restituisce metriche
+    Valuta il modello DUAL-CODEBOOK su una specifica sessione e restituisce metriche
     """
     
     print(f"\n{'='*70}")
@@ -123,7 +127,7 @@ def evaluate_session(model, session_id, device, window_size, stride):
                 neural_data = batch_data.to(device)
                 
                 # Forward pass
-                vq_loss, neural_recon, perplexity, _, _ = model(neural_data)
+                vq_loss, neural_recon, perplexity, quantized, encodings = model(neural_data)
                 
                 # Converti in numpy
                 original = neural_data.cpu().numpy()
@@ -160,10 +164,10 @@ def evaluate_session(model, session_id, device, window_size, stride):
         print(f"   Corr mean: {corr_mean:.4f}")
         
         return {
-            'session_id': int(session_id),
-            'num_samples': samples_processed,
+            'id': int(session_id),
             'mse_mean': mse_mean,
             'corr_mean': corr_mean,
+            'samples': samples_processed,
             'success': True
         }
         
@@ -173,7 +177,7 @@ def evaluate_session(model, session_id, device, window_size, stride):
         traceback.print_exc()
         
         return {
-            'session_id': int(session_id),
+            'id': int(session_id),
             'success': False,
             'error': str(e)
         }
@@ -181,42 +185,37 @@ def evaluate_session(model, session_id, device, window_size, stride):
 
 def save_results_to_json(results, checkpoint_path):
     """
-    Salva i risultati in JSON:
-    - model_config indentato leggibile
-    - session_results: ogni sessione su una singola riga
+    Salva i risultati in JSON compatto nella cartella metriche_vis_duali
     """
-    output_dir = Path('metrics_results')
+    output_dir = Path('metriche_vis_duali')
     output_dir.mkdir(parents=True, exist_ok=True)
 
     checkpoint_name = Path(checkpoint_path).stem
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f'{checkpoint_name}_metrics.json'
     output_path = output_dir / filename
 
-    # Prepara sessioni
+    # Prepara sessioni (formato compatto)
     sessions = []
     for r in results:
         if r.get('success'):
             sessions.append({
-                "session_id": int(r["session_id"]),
-                "mse_mean": round(float(r["mse_mean"]), 6),
-                "corr_mean": round(float(r["corr_mean"]), 4),
-                "samples": int(r["num_samples"])
+                "id": r["id"],
+                "mse_mean": round(r["mse_mean"], 6),
+                "corr_mean": round(r["corr_mean"], 4),
+                "samples": r["samples"]
             })
 
+    # Scrivi JSON compatto
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write('{\n')
-        # model_config leggibile
-        f.write(f'  "model_config": {json.dumps(MODEL_CONFIG, indent=2, ensure_ascii=False)},\n')
-        # session_results flat
-        f.write('  "session_results": [\n')
+        f.write('[\n')
         for i, s in enumerate(sessions):
-            line = f'    {json.dumps(s, ensure_ascii=False)}'
+            line = f'  {json.dumps(s, ensure_ascii=False)}'
             if i < len(sessions) - 1:
                 line += ','
             line += '\n'
             f.write(line)
-        f.write('  ]\n')
-        f.write('}\n')
+        f.write(']\n')
 
     print(f"\n💾 Risultati salvati in JSON:")
     print(f"   {output_path}")
@@ -224,13 +223,12 @@ def save_results_to_json(results, checkpoint_path):
     return output_path
 
 
-
 # ============================================================================
 # MAIN
 # ============================================================================
 
 def main():
-    print("🎯 TEST CHECKPOINT E SALVATAGGIO METRICHE IN JSON")
+    print("🎯 TEST DUAL-CODEBOOK CHECKPOINT (Formato Compatto)")
     print("="*70)
     print(f"📁 Checkpoint: {CHECKPOINT_PATH}")
     print(f"🔬 Sessioni da testare: {len(SESSIONS_TO_TEST)}")
@@ -248,13 +246,13 @@ def main():
         return
     
     # Carica modello
-    model = load_trained_model(CHECKPOINT_PATH, MODEL_CONFIG, device)
+    model = load_trained_dual_model(CHECKPOINT_PATH, MODEL_CONFIG, device)
     
     # Testa su tutte le sessioni
     all_results = []
     
     for session_id in SESSIONS_TO_TEST:
-        result = evaluate_session(model, session_id, device, WINDOW_SIZE, STRIDE)
+        result = evaluate_session_dual(model, session_id, device, WINDOW_SIZE, STRIDE)
         all_results.append(result)
     
     # Salva risultati in JSON
@@ -284,11 +282,12 @@ def main():
         print("-" * 55)
         
         for r in successful_results:
-            print(f"{r['session_id']:<15} {r['mse_mean']:<15.6f} {r['corr_mean']:<15.4f} {r['num_samples']:<10}")
+            print(f"{r['id']:<15} {r['mse_mean']:<15.6f} {r['corr_mean']:<15.4f} {r['samples']:<10}")
     else:
         print(f"\n❌ Nessuna sessione testata con successo")
     
     print(f"\n✅ Risultati salvati in: {json_path}")
+    print(f"📁 Cartella: metriche_vis_duali/")
     print("="*70)
 
 
