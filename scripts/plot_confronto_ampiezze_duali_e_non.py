@@ -13,7 +13,7 @@ from pathlib import Path
 # ============================================================================
 # CONFIGURAZIONE
 # ============================================================================
-OUTPUT_DIR = Path(r"C:\Users\Piedi\Desktop\TesiProgettoVQVAE\confronto_duali_vs_non_duali")
+OUTPUT_DIR = Path(r"C:\Users\Claudio\Desktop\TesiProgettoVQVAE\confronto_duali_vs_non_duali")
 
 # Mapping session types based on position in results
 # First 3 sessions: VISP
