@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
 """
-VELOCITY PREDICTION - PATTERN-BASED APPROACH
+Training Script for Behavioral VQ-VAE - VELOCITY ONLY
 
-OBIETTIVO:
-1. Training: 10 neuroni random (1 per sessione) + velocity
-2. Impara: Pattern di attività neurale → velocity (NON identità neurone)
-3. Inference: Dato nuovo neurone → predici velocity
+Uses pretrained neural encoder + codebook (frozen)
+Trains only velocity decoder to predict running velocity
 
-STRATEGIA:
-- Usa FEATURES dell'attività neurale (firing rate, burstiness, etc)
-- NON identità specifica del neurone
-- Impara mapping: neural dynamics → behavioral state
-
-KEY INSIGHT:
-Velocity riflette stato comportamentale globale del mouse.
-Neuroni con attività simile → velocity simile.
-Il modello impara: "alta firing rate + bursts → alta velocity"
+Transfer learning approach:
+1. Load pretrained VQ-VAE (neural reconstruction)
+2. Freeze encoder + codebook
+3. Train new decoder for velocity prediction
 """
 
 import sys
@@ -31,247 +24,76 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from scipy.stats import pearsonr
 
-# ============================================================================
-# FEATURE-BASED VELOCITY PREDICTOR
-# ============================================================================
-
-class FeatureBasedVelocityPredictor(nn.Module):
-    """
-    Predice velocity da FEATURES dell'attività neurale
-    
-    Features estratte:
-    - Temporal dynamics (CNN)
-    - Statistical properties (mean, std, peaks)
-    - Frequency content (FFT-based features)
-    
-    Questo permette generalizzazione a QUALSIASI neurone!
-    """
-    
-    def __init__(self, hidden_dim=512, dropout=0.3):
-        super(FeatureBasedVelocityPredictor, self).__init__()
-        
-        print(f"\n📊 Feature-Based Velocity Predictor:")
-        print(f"   Strategy: Learn GENERAL patterns, not neuron identity")
-        print(f"   Features: Temporal + Statistical + Frequency")
-        
-        # ===== TEMPORAL FEATURES (CNN) =====
-        # Estrae pattern temporali: bursts, ramps, etc
-        # Input: (B, N_neurons, 60) → reshape to (B, 1, N*60) per Conv1d
-        self.conv1 = nn.Conv1d(20, 64, kernel_size=7, padding=3)  # 20 neuroni input
-        self.bn1 = nn.BatchNorm1d(64)
-        
-        self.conv2 = nn.Conv1d(64, 128, kernel_size=5, padding=2)
-        self.bn2 = nn.BatchNorm1d(128)
-        
-        self.conv3 = nn.Conv1d(128, 256, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm1d(256)
-        
-        self.pool = nn.MaxPool1d(2)
-        self.dropout_conv = nn.Dropout(dropout)
-        
-        # Global temporal pooling
-        self.global_pool = nn.AdaptiveAvgPool1d(1)
-        
-        # ===== STATISTICAL FEATURES =====
-        # Calcolate durante forward: mean, std, max, peak_count, etc
-        # Input size: 256 (CNN) + 6*20 (stats per 20 neuroni) = 376
-        
-        # ===== FUSION NETWORK =====
-        self.fc1 = nn.Linear(256 + 6*20, hidden_dim)  # CNN + stats per 20 neuroni
-        self.ln1 = nn.LayerNorm(hidden_dim)
-        self.dropout1 = nn.Dropout(dropout)
-        
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim // 2)
-        self.ln2 = nn.LayerNorm(hidden_dim // 2)
-        self.dropout2 = nn.Dropout(dropout)
-        
-        self.fc3 = nn.Linear(hidden_dim // 2, hidden_dim // 4)
-        self.ln3 = nn.LayerNorm(hidden_dim // 4)
-        self.dropout3 = nn.Dropout(dropout)
-        
-        self.fc_out = nn.Linear(hidden_dim // 4, 1)
-        
-        self._init_weights()
-        
-        num_params = sum(p.numel() for p in self.parameters())
-        print(f"✅ Model: {num_params:,} parameters")
-    
-    def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, (nn.Conv1d, nn.Linear)):
-                nn.init.kaiming_normal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-    
-    def extract_statistical_features(self, x):
-        """
-        Extract statistical features from neural traces (20 neuroni)
-        
-        Args:
-            x: (B, 20, 60) neural activity
-        Returns:
-            stats: (B, 120) statistical features (6 per neurone * 20)
-        """
-        batch_size = x.size(0)
-        num_neurons = x.size(1)
-        x_np = x.cpu().numpy()  # (B, 20, 60)
-        
-        features = []
-        
-        for i in range(batch_size):
-            sample_features = []
-            
-            for n in range(num_neurons):
-                trace = x_np[i, n, :]
-                
-                # 1-6: Features per questo neurone
-                mean_fr = np.mean(trace)
-                std_fr = np.std(trace)
-                max_fr = np.max(trace)
-                
-                threshold = mean_fr + 1.0 * std_fr
-                peaks = np.sum(trace > threshold)
-                
-                cv = std_fr / (mean_fr + 1e-8)
-                range_fr = np.max(trace) - np.min(trace)
-                
-                sample_features.extend([mean_fr, std_fr, max_fr, peaks, cv, range_fr])
-            
-            features.append(sample_features)
-        
-        return torch.FloatTensor(features).to(x.device)
-    
-    def forward(self, x):
-        """
-        Args:
-            x: (B, 20, 60) neural activity (20 neuroni)
-        Returns:
-            velocity: (B,) predicted velocity
-        """
-        # ===== TEMPORAL FEATURES (CNN) =====
-        h = self.conv1(x)  # Input: (B, 20, 60)
-        h = self.bn1(h)
-        h = F.relu(h)
-        h = self.pool(h)
-        h = self.dropout_conv(h)
-        
-        h = self.conv2(h)
-        h = self.bn2(h)
-        h = F.relu(h)
-        h = self.pool(h)
-        h = self.dropout_conv(h)
-        
-        h = self.conv3(h)
-        h = self.bn3(h)
-        h = F.relu(h)
-        h = self.dropout_conv(h)
-        
-        # Global pooling
-        h = self.global_pool(h)  # (B, 256, 1)
-        h = h.view(h.size(0), -1)  # (B, 256)
-        
-        # ===== STATISTICAL FEATURES =====
-        stats = self.extract_statistical_features(x)  # (B, 120)
-        
-        # ===== FUSION =====
-        combined = torch.cat([h, stats], dim=1)  # (B, 376)
-        
-        # FC layers
-        x_out = self.fc1(combined)
-        x_out = self.ln1(x_out)
-        x_out = F.relu(x_out)
-        x_out = self.dropout1(x_out)
-        
-        x_out = self.fc2(x_out)
-        x_out = self.ln2(x_out)
-        x_out = F.relu(x_out)
-        x_out = self.dropout2(x_out)
-        
-        x_out = self.fc3(x_out)
-        x_out = self.ln3(x_out)
-        x_out = F.relu(x_out)
-        x_out = self.dropout3(x_out)
-        
-        velocity = self.fc_out(x_out)
-        
-        return velocity.squeeze(-1)
-
+from models.behavioral_vqvae import create_behavioral_model_from_checkpoint
+from models.vqvae import CalciumVQVAE
+from models.dual_vqvae import DualCalciumVQVAE
+from datasets.velocity import create_velocity_dataloaders  # ✅ New import
+from datasets.calcium import TRAINING_SESSION_IDS
 
 # ============================================================================
-# VELOCITY DATASET (usa behavioral.py esistente)
+# CONFIGURATION
 # ============================================================================
 
-class VelocityDataset(torch.utils.data.Dataset):
-    def __init__(self, behavioral_dataset):
-        self.behavioral_dataset = behavioral_dataset
+PRETRAINED_CONFIG = {
+    'checkpoint_path': 'results/best_single_neuron_model_32.pth',
+    'model_class': CalciumVQVAE,
     
-    def __len__(self):
-        return len(self.behavioral_dataset)
-    
-    def __getitem__(self, idx):
-        neural, behavioral = self.behavioral_dataset[idx]
-        velocity = behavioral[3]  # Velocity
-        return neural, velocity
+    # Model architecture (must match pretrained)
+    'num_neurons': 1,
+    'num_hiddens': 128,
+    'num_residual_layers': 3,
+    'num_residual_hiddens': 64,
+    'num_embeddings': 32,
+    'embedding_dim': 32,
+    'commitment_cost': 2.0,
+    'dropout_rate': 0.1,
+    'use_quantizer': True,
+}
 
+BEHAVIORAL_CONFIG = {
+    'freeze_encoder': True,
+    'freeze_codebook': True,
+    'hidden_dim': 256,
+    'dropout_rate': 0.3,
+}
 
-def create_velocity_dataloaders(batch_size=128, train_split=0.8):
-    """Use existing behavioral.py with random neurons"""
-    from datasets.behavioral import create_behavioral_dataloaders
-    from datasets.calcium import TRAINING_SESSION_IDS
-    
-    print("\n📊 Loading velocity data from 10 sessions...")
-    print("   Using RANDOM neuron per session (different each time)")
-    print("   Model will learn GENERAL patterns, not specific neurons!")
-    
-    train_loader_full, test_loader_full, dataset_info = create_behavioral_dataloaders(
-        session_ids=TRAINING_SESSION_IDS,
-        batch_size=batch_size,
-        test_split=1.0 - train_split,
-        window_size=60,
-        stride=30,
-        num_neurons=20,  # 🔥 20 neuroni per più segnale!
-        num_workers=0,
-        normalize=True
-    )
-    
-    # Wrap to extract velocity
-    train_dataset = VelocityDataset(train_loader_full.dataset)
-    test_dataset = VelocityDataset(test_loader_full.dataset)
-    
-    train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=0
-    )
-    test_loader = torch.utils.data.DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False, num_workers=0
-    )
-    
-    print(f"✅ Data loaded:")
-    print(f"   Train: {dataset_info['train_samples']}")
-    print(f"   Test: {dataset_info['test_samples']}")
-    
-    return train_loader, test_loader, dataset_info
-
+TRAIN_CONFIG = {
+    'batch_size': 128,
+    'learning_rate': 0.001,
+    'max_epochs': 200,
+    'patience': 30,
+    'weight_decay': 0.0001,
+    'visualize_every': 10,
+    'evaluate_every': 5,
+}
 
 # ============================================================================
-# TRAINING
+# TRAINING & EVALUATION
 # ============================================================================
 
 def train_epoch(model, dataloader, optimizer, device):
+    """Train one epoch"""
     model.train()
+    model.velocity_decoder.train()  # ✅ Changed from behavioral_decoder
+    model.encoder.eval()
+    model.vector_quantization.eval()
+    
     total_loss = 0
     
-    for neural, velocity in dataloader:
-        neural = neural.to(device)
-        velocity = velocity.to(device)
+    for neural_data, velocity_targets in dataloader:  # ✅ Only velocity now
+        neural_data = neural_data.to(device)
+        velocity_targets = velocity_targets.to(device)
         
-        pred = model(neural)
+        # Forward pass
+        predictions = model(neural_data, return_quantized=False)
         
-        # Huber loss (robust to outliers)
-        loss = F.smooth_l1_loss(pred, velocity)
+        # Loss (Huber loss - robust to outliers)
+        loss = F.smooth_l1_loss(predictions, velocity_targets)
         
+        # Backward pass
         optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(model.velocity_decoder.parameters(), 1.0)
         optimizer.step()
         
         total_loss += loss.item()
@@ -279,50 +101,50 @@ def train_epoch(model, dataloader, optimizer, device):
     return {'train/loss': total_loss / len(dataloader)}
 
 
-# ============================================================================
-# EVALUATION
-# ============================================================================
-
 def evaluate_model(model, dataloader, device):
+    """Evaluate model"""
     model.eval()
     
-    all_preds = []
+    all_predictions = []
     all_targets = []
     total_loss = 0
     
     with torch.no_grad():
-        for neural, velocity in dataloader:
-            neural = neural.to(device)
-            velocity = velocity.to(device)
+        for neural_data, velocity_targets in dataloader:
+            neural_data = neural_data.to(device)
+            velocity_targets = velocity_targets.to(device)
             
-            pred = model(neural)
-            loss = F.smooth_l1_loss(pred, velocity)
+            predictions = model(neural_data, return_quantized=False)
+            loss = F.smooth_l1_loss(predictions, velocity_targets)
             
-            all_preds.append(pred.cpu().numpy())
-            all_targets.append(velocity.cpu().numpy())
+            all_predictions.append(predictions.cpu().numpy())
+            all_targets.append(velocity_targets.cpu().numpy())
             total_loss += loss.item()
     
-    preds = np.concatenate(all_preds)
+    predictions = np.concatenate(all_predictions)
     targets = np.concatenate(all_targets)
     
-    mse = np.mean((preds - targets) ** 2)
-    mae = np.mean(np.abs(preds - targets))
+    # Compute metrics
+    mse = np.mean((predictions - targets) ** 2)
+    mae = np.mean(np.abs(predictions - targets))
     
-    ss_res = np.sum((targets - preds) ** 2)
+    ss_res = np.sum((targets - predictions) ** 2)
     ss_tot = np.sum((targets - np.mean(targets)) ** 2)
     r2 = 1 - (ss_res / ss_tot) if ss_tot > 1e-10 else 0.0
     
-    if np.std(preds) > 1e-8 and np.std(targets) > 1e-8:
-        corr, _ = pearsonr(preds, targets)
+    if np.std(predictions) > 1e-8 and np.std(targets) > 1e-8:
+        corr, _ = pearsonr(predictions, targets)
         corr = corr if not np.isnan(corr) else 0.0
     else:
         corr = 0.0
     
+    # Signal-to-noise ratio
     signal_power = np.mean(targets ** 2)
-    noise_power = np.mean((targets - preds) ** 2)
+    noise_power = np.mean((targets - predictions) ** 2)
     snr = 10 * np.log10(signal_power / noise_power) if noise_power > 0 else 0
     
-    pred_std = np.std(preds)
+    # Variance ratio
+    pred_std = np.std(predictions)
     target_std = np.std(targets)
     var_ratio = pred_std / target_std if target_std > 0 else 0
     
@@ -337,50 +159,50 @@ def evaluate_model(model, dataloader, device):
     }
 
 
-# ============================================================================
-# VISUALIZATION
-# ============================================================================
-
 def visualize_predictions(model, dataloader, device, epoch):
+    """Visualize predictions vs targets"""
     model.eval()
     
-    neural, velocity = next(iter(dataloader))
-    neural = neural.to(device)
+    neural_data, velocity_targets = next(iter(dataloader))
+    neural_data = neural_data.to(device)
     
     with torch.no_grad():
-        pred = model(neural)
+        predictions = model(neural_data)
     
-    preds = pred.cpu().numpy()
-    targets = velocity.cpu().numpy()
+    predictions = predictions.cpu().numpy()
+    targets = velocity_targets.cpu().numpy()
     
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     
-    # Scatter
-    axes[0].scatter(targets, preds, alpha=0.3, s=10)
+    # Scatter plot
+    axes[0].scatter(targets, predictions, alpha=0.3, s=10)
     axes[0].plot([targets.min(), targets.max()], 
-                [targets.min(), targets.max()], 'r--', lw=2)
+                [targets.min(), targets.max()], 'r--', lw=2, label='Perfect')
     axes[0].set_xlabel('Target Velocity')
     axes[0].set_ylabel('Predicted Velocity')
-    axes[0].set_title(f'Epoch {epoch}')
+    axes[0].set_title(f'Epoch {epoch}: Predictions vs Targets')
+    axes[0].legend()
     axes[0].grid(True, alpha=0.3)
     
-    if np.std(preds) > 1e-8:
-        corr, _ = pearsonr(preds, targets)
-        axes[0].text(0.05, 0.95, f'Corr: {corr:.3f}', 
+    if np.std(predictions) > 1e-8:
+        corr, _ = pearsonr(predictions, targets)
+        axes[0].text(0.05, 0.95, f'Correlation: {corr:.3f}', 
                     transform=axes[0].transAxes, fontsize=12,
                     bbox=dict(boxstyle='round', facecolor='wheat'))
     
-    # Histogram
+    # Distribution comparison
     axes[1].hist(targets, bins=50, alpha=0.5, label='Target', density=True)
-    axes[1].hist(preds, bins=50, alpha=0.5, label='Pred', density=True)
+    axes[1].hist(predictions, bins=50, alpha=0.5, label='Predicted', density=True)
     axes[1].set_xlabel('Velocity')
+    axes[1].set_ylabel('Density')
+    axes[1].set_title('Distribution Comparison')
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
     
-    pred_std = np.std(preds)
+    pred_std = np.std(predictions)
     target_std = np.std(targets)
-    stats = f'Target std: {target_std:.3f}\nPred std: {pred_std:.3f}\nRatio: {pred_std/target_std:.3f}'
-    axes[1].text(0.98, 0.98, stats, transform=axes[1].transAxes,
+    stats_text = f'Target std: {target_std:.3f}\nPred std: {pred_std:.3f}\nRatio: {pred_std/target_std:.3f}'
+    axes[1].text(0.98, 0.98, stats_text, transform=axes[1].transAxes,
                 verticalalignment='top', horizontalalignment='right',
                 bbox=dict(boxstyle='round', facecolor='wheat'))
     
@@ -394,59 +216,69 @@ def visualize_predictions(model, dataloader, device, epoch):
 
 def main():
     wandb.init(
-        project="calcium-velocity-prediction",
-        name=f"feature-based-{datetime.now().strftime('%m%d-%H%M')}",
+        project="calcium-velocity-vqvae",
+        name=f"velocity-transfer-{datetime.now().strftime('%m%d-%H%M')}",
         config={
-            'approach': 'feature-based',
-            'hidden_dim': 512,
-            'batch_size': 128,
-            'learning_rate': 0.001,
-            'max_epochs': 300,
-            'patience': 50,
+            **PRETRAINED_CONFIG,
+            **BEHAVIORAL_CONFIG,
+            **TRAIN_CONFIG
         },
-        tags=["feature-based", "generalizable", "random-neurons", "10-sessions"]
+        tags=["velocity", "transfer-learning", "frozen-encoder", "single-neuron"]
     )
     
     print("="*70)
-    print("🔥 FEATURE-BASED VELOCITY PREDICTION")
+    print("🚀 VELOCITY PREDICTION - TRANSFER LEARNING APPROACH")
     print("="*70)
-    print("✅ Strategy:")
-    print("   1. Use RANDOM neurons (1 per session)")
-    print("   2. Extract GENERAL features (temporal + statistical)")
-    print("   3. Learn: Neural dynamics → Velocity")
-    print("   4. Generalize to ANY neuron!")
-    print("")
-    print("🎯 Key Insight:")
-    print("   High firing rate + bursts → High velocity")
-    print("   Low/steady activity → Low velocity")
-    print("   Model learns PATTERNS, not neuron identity!")
+    print("📊 Strategy:")
+    print("   1. Load pretrained VQ-VAE (neural reconstruction)")
+    print("   2. Freeze encoder + codebook")
+    print("   3. Train NEW decoder for velocity prediction")
     print("="*70)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"💻 Device: {device}\n")
     
     try:
-        # Create model
-        model = FeatureBasedVelocityPredictor(
-            hidden_dim=wandb.config.hidden_dim,
-            dropout=0.3
-        ).to(device)
+        # Check if checkpoint exists
+        if not os.path.exists(PRETRAINED_CONFIG['checkpoint_path']):
+            print(f"❌ Checkpoint not found: {PRETRAINED_CONFIG['checkpoint_path']}")
+            print("   You need to train a VQ-VAE first!")
+            return
         
-        # Load data
-        train_loader, test_loader, info = create_velocity_dataloaders(
-            batch_size=wandb.config.batch_size,
-            train_split=0.8
+        # Create model from pretrained checkpoint
+        print("🧠 Loading pretrained VQ-VAE...")
+        model = create_behavioral_model_from_checkpoint(
+            checkpoint_path=PRETRAINED_CONFIG['checkpoint_path'],
+            model_class=PRETRAINED_CONFIG['model_class'],
+            model_config=PRETRAINED_CONFIG,
+            device=device,
+            freeze_encoder=BEHAVIORAL_CONFIG['freeze_encoder'],
+            freeze_codebook=BEHAVIORAL_CONFIG['freeze_codebook'],
+            hidden_dim=BEHAVIORAL_CONFIG['hidden_dim'],
+            dropout_rate=BEHAVIORAL_CONFIG['dropout_rate']
         )
         
-        # Optimizer
+        # Load velocity data
+        print("\n📊 Loading velocity data...")
+        train_loader, test_loader, info = create_velocity_dataloaders(
+            session_ids=TRAINING_SESSION_IDS[:5],  # Start with 5 sessions
+            batch_size=TRAIN_CONFIG['batch_size'],
+            test_split=0.2,
+            window_size=60,
+            stride=30,
+            num_neurons=1,  # Single neuron
+            normalize=True
+        )
+        
+        # Optimizer (only trainable parameters)
         optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=wandb.config.learning_rate,
-            weight_decay=0.0001
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=TRAIN_CONFIG['learning_rate'],
+            weight_decay=TRAIN_CONFIG['weight_decay']
         )
         
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, mode='max', factor=0.5, patience=15, verbose=True
+            optimizer, mode='max', factor=0.5, patience=10, verbose=True
         )
         
         print("\n🚀 Starting training...\n")
@@ -454,10 +286,10 @@ def main():
         best_corr = -1.0
         patience_counter = 0
         
-        for epoch in range(wandb.config.max_epochs):
+        for epoch in range(TRAIN_CONFIG['max_epochs']):
             train_metrics = train_epoch(model, train_loader, optimizer, device)
             
-            if epoch % 5 == 0:
+            if epoch % TRAIN_CONFIG['evaluate_every'] == 0:
                 test_metrics = evaluate_model(model, test_loader, device)
                 
                 scheduler.step(test_metrics['test/correlation'])
@@ -472,7 +304,7 @@ def main():
                 print(f"  🔥 R²={test_metrics['test/r2']:.4f}, Corr={test_metrics['test/correlation']:.4f}, SNR={test_metrics['test/snr']:.1f}dB")
                 print(f"  📊 Var ratio={test_metrics['test/variance_ratio']:.3f}")
                 
-                if epoch % 20 == 0:
+                if epoch % TRAIN_CONFIG['visualize_every'] == 0:
                     fig = visualize_predictions(model, test_loader, device, epoch)
                     wandb.log({f"predictions/epoch_{epoch}": wandb.Image(fig)})
                     plt.close(fig)
@@ -487,24 +319,21 @@ def main():
                         'model_state_dict': model.state_dict(),
                         'best_correlation': best_corr,
                         'test_metrics': test_metrics,
-                    }, './results/velocity/best_feature_based.pth')
+                    }, './results/velocity/best_velocity_transfer.pth')
                     print(f"  💾 Saved (corr={best_corr:.4f})")
                 else:
                     patience_counter += 1
                 
-                if patience_counter >= wandb.config.patience:
+                if patience_counter >= TRAIN_CONFIG['patience']:
                     print("\n⚠️ Early stopping")
                     break
             else:
                 wandb.log({**train_metrics, 'epoch': epoch})
         
         print("\n" + "="*70)
-        print("🎯 FINAL RESULTS")
+        print("✅ TRAINING COMPLETED")
         print("="*70)
         print(f"Best correlation: {best_corr:.4f}")
-        print("")
-        print("💡 This model can now predict velocity from ANY neuron")
-        print("   because it learned GENERAL activity patterns!")
         print("="*70)
         
     except Exception as e:

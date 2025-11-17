@@ -23,18 +23,18 @@ import torch.nn.functional as F
 
 class BehavioralVQVAE(nn.Module):
     """
-    VQ-VAE for behavioral prediction using pretrained neural encoder
+    VQ-VAE for VELOCITY prediction using pretrained neural encoder
     
     Key features:
     - Loads pretrained encoder + codebook (frozen)
-    - New trainable linear decoder for behavior
-    - Output: 4 behavioral variables
+    - New trainable linear decoder for velocity
+    - Output: 1 behavioral variable (velocity)
     
     Args:
         pretrained_model: CalciumVQVAE or DualCalciumVQVAE instance
         freeze_encoder: If True, freeze encoder weights
         freeze_codebook: If True, freeze codebook weights
-        hidden_dim: Hidden dimension for behavioral decoder (optional)
+        hidden_dim: Hidden dimension for velocity decoder (optional)
         dropout_rate: Dropout for regularization
     """
     
@@ -54,7 +54,7 @@ class BehavioralVQVAE(nn.Module):
                 param.requires_grad = False
             for param in self.pre_quantization_conv.parameters():
                 param.requires_grad = False
-            self.encoder.eval()  # Set to eval mode
+            self.encoder.eval()
             self.pre_quantization_conv.eval()
         
         # ========================================================================
@@ -69,32 +69,28 @@ class BehavioralVQVAE(nn.Module):
             self.vector_quantization.eval()
         
         # ========================================================================
-        # PARTE 3: BEHAVIORAL DECODER (NEW, Trainable)
+        # PARTE 3: VELOCITY DECODER (NEW, Trainable)
         # ========================================================================
         
-        # Ottieni dimensioni dal pretrained model
+        # Get dimensions from pretrained model
         embedding_dim = pretrained_model.vector_quantization.e_dim
         
-        # Il quantizer output ha shape: (B, embedding_dim, compressed_time)
-        # Dobbiamo fare flatten e poi predire 4 variabili comportamentali
+        # Compressed time size (depends on encoder architecture)
+        # For CalciumEncoder with 2 stride-2 layers: 60 → 30 → 15
+        self.compressed_time = 15
         
-        # Calcoliamo il compressed_time size
-        # Input: (B, 1, 60) → Encoder → (B, embedding_dim, compressed_time)
-        # Per CalciumEncoder con 2 stride-2 layers: 60 → 30 → 15
-        self.compressed_time = 15  # ✅ Hardcoded per ora, ma possiamo calcolare
-        
-        # Input size al decoder
+        # Input size to decoder
         self.flatten_size = embedding_dim * self.compressed_time
         
-        print(f"\n📊 Behavioral Decoder Architecture:")
+        print(f"\n📊 Velocity Decoder Architecture:")
         print(f"   Input: ({embedding_dim}, {self.compressed_time}) → Flatten → {self.flatten_size}")
         print(f"   Hidden: {hidden_dim}")
-        print(f"   Output: 4 behavioral variables")
+        print(f"   Output: 1 (velocity)")
         
-        # Behavioral decoder: Flatten → Linear → Output
+        # Velocity decoder: Flatten → Linear → Output
         if hidden_dim > 0:
-            # With hidden layer
-            self.behavioral_decoder = nn.Sequential(
+            # With hidden layers
+            self.velocity_decoder = nn.Sequential(
                 nn.Flatten(),  # (B, embedding_dim, compressed_time) → (B, flatten_size)
                 
                 nn.Linear(self.flatten_size, hidden_dim),
@@ -105,20 +101,20 @@ class BehavioralVQVAE(nn.Module):
                 nn.ReLU(),
                 nn.Dropout(dropout_rate),
                 
-                nn.Linear(hidden_dim // 2, 1)  # 4 output: pupil, vert, horiz, velocity
+                nn.Linear(hidden_dim // 2, 1)  # ✅ Output: 1 (velocity only)
             )
         else:
             # Direct linear projection
-            self.behavioral_decoder = nn.Sequential(
+            self.velocity_decoder = nn.Sequential(
                 nn.Flatten(),
                 nn.Linear(self.flatten_size, 1)
             )
         
-        print(f"✅ Behavioral decoder created: {self._count_decoder_params()} trainable params")
+        print(f"✅ Velocity decoder created: {self._count_decoder_params()} trainable params")
     
     def _count_decoder_params(self):
-        """Count trainable parameters in behavioral decoder"""
-        return sum(p.numel() for p in self.behavioral_decoder.parameters() if p.requires_grad)
+        """Count trainable parameters in velocity decoder"""
+        return sum(p.numel() for p in self.velocity_decoder.parameters() if p.requires_grad)
     
     def forward(self, x, return_quantized=False):
         """
@@ -130,9 +126,9 @@ class BehavioralVQVAE(nn.Module):
         
         Returns:
             If return_quantized=False:
-                behavioral_output: (B, 4) - [pupil, vert, horiz, velocity]
+                velocity_output: (B,) - predicted velocity
             If return_quantized=True:
-                behavioral_output, quantized, vq_loss, perplexity
+                velocity_output, quantized, vq_loss, perplexity
         """
         
         # ========================================================================
@@ -152,17 +148,20 @@ class BehavioralVQVAE(nn.Module):
                 self.vector_quantization(z)
         
         # ========================================================================
-        # BEHAVIORAL PREDICTION (Trainable)
+        # VELOCITY PREDICTION (Trainable)
         # ========================================================================
         
-        # quantized shape: (B, embedding_dim, compressed_time)
-        behavioral_output = self.behavioral_decoder(quantized)
-        # behavioral_output shape: (B, 4)
+        # quantized shape: (1, B*embedding_dim, compressed_time) 
+        B, embedding_dim, compressed_time = quantized.shape
+        quantized=quantized.reshape(1, B*embedding_dim, compressed_time)
+        velocity_output = self.velocity_decoder(quantized)
+        # velocity_output shape: (B, 1) → squeeze to (B,)
+        velocity_output = velocity_output.squeeze(-1)
         
         if return_quantized:
-            return behavioral_output, quantized, vq_loss, perplexity
+            return velocity_output, quantized, vq_loss, perplexity
         else:
-            return behavioral_output
+            return velocity_output
     
     def encode(self, x):
         """Encode input to quantized representation (for analysis)"""
@@ -330,17 +329,17 @@ if __name__ == "__main__":
     
     # Forward pass without quantized output
     output = behavioral_model(x, return_quantized=False)
-    print(f"   Behavioral output shape: {output.shape}")  # Should be (4, 4)
+    print(f"   Velocity output shape: {output.shape}")  # ✅ Changed comment
     
     # Forward pass with quantized output
     output, quantized, vq_loss, perplexity = behavioral_model(x, return_quantized=True)
-    print(f"   Behavioral output: {output.shape}")
+    print(f"   Velocity output: {output.shape}")
     print(f"   Quantized: {quantized.shape}")
     print(f"   VQ Loss: {vq_loss:.4f}")
     print(f"   Perplexity: {perplexity:.2f}")
     
     # Check shapes
-    assert output.shape == (4, 4), "Output shape should be (batch, 4)"
+    assert output.shape == (4,), f"Output shape should be (4,), got {output.shape}"  # ✅ Fixed assertion
     print(f"\n✅ All tests passed!")
     
     # Model statistics
