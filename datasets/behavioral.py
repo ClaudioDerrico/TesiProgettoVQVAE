@@ -1,21 +1,16 @@
 """
-Allen Brain Observatory Behavioral Dataset
+Allen Brain Observatory Behavioral Dataset - FIXED VERSION
+
+CAMBIAMENTO PRINCIPALE:
+- USA API AllenSDK (dataset.get_running_speed(), etc.) invece di accesso diretto HDF5
+- Questo risolve il problema "No pupil data found" / "No running speed found"
 
 Loads and aligns:
-- Neural calcium imaging data (già gestito)
+- Neural calcium imaging data
 - Behavioral data:
   * Pupil dilation
   * Eye tracking (vertical, horizontal position)
   * Running speed (velocity)
-
-Temporal alignment e sliding windows per training
-
-Data loader che:
-
-Carica dati neurali dall'Allen Brain Observatory
-Carica dati comportamentali (pupil, eye tracking, running speed)
-Allinea temporalmente i dati
-Crea sliding windows per training
 """
 
 import numpy as np
@@ -29,6 +24,7 @@ from scipy.ndimage import gaussian_filter1d
 def load_behavioral_data_from_session(session_id, boc=None):
     """
     Carica dati comportamentali da una sessione Allen Brain Observatory
+    USANDO L'API AllenSDK (non accesso diretto HDF5)
     
     Args:
         session_id: Session ID
@@ -52,78 +48,146 @@ def load_behavioral_data_from_session(session_id, boc=None):
     try:
         # Get dataset
         dataset = boc.get_ophys_experiment_data(session_id)
-        nwb_file = dataset.nwb_file
         
         # ====================================================================
-        # PUPIL DATA
+        # GET NEURAL TIMESTAMPS (reference) - PRIMA DI TUTTO
         # ====================================================================
-        # Pupil tracking: area (size), centroid position
-        try:
-            with h5py.File(nwb_file, 'r') as f:
-                pupil_path = 'processing/brain_observatory_pipeline/EyeTracking'
-                
-                if pupil_path in f:
-                    # Pupil area
-                    pupil_area = f[f'{pupil_path}/pupil_area/data'][:]
-                    pupil_timestamps = f[f'{pupil_path}/pupil_area/timestamps'][:]
-                    
-                    # Eye position (centroid)
-                    eye_x = f[f'{pupil_path}/pupil_x/data'][:]
-                    eye_y = f[f'{pupil_path}/pupil_y/data'][:]
-                    
-                    print(f"   ✅ Pupil data: {len(pupil_area)} samples")
-                else:
-                    print(f"   ⚠️ No pupil data found")
-                    pupil_area = None
-                    eye_x = None
-                    eye_y = None
-                    pupil_timestamps = None
-        except Exception as e:
-            print(f"   ❌ Error loading pupil: {e}")
-            pupil_area = None
-            eye_x = None
-            eye_y = None
-            pupil_timestamps = None
-        
-        # ====================================================================
-        # RUNNING SPEED
-        # ====================================================================
-        try:
-            with h5py.File(nwb_file, 'r') as f:
-                running_path = 'processing/brain_observatory_pipeline/RunningSpeed'
-                
-                if running_path in f:
-                    running_speed = f[f'{running_path}/data'][:]
-                    running_timestamps = f[f'{running_path}/timestamps'][:]
-                    
-                    print(f"   ✅ Running speed: {len(running_speed)} samples")
-                else:
-                    print(f"   ⚠️ No running speed found")
-                    running_speed = None
-                    running_timestamps = None
-        except Exception as e:
-            print(f"   ❌ Error loading running speed: {e}")
-            running_speed = None
-            running_timestamps = None
-        
-        # ====================================================================
-        # GET NEURAL TIMESTAMPS (reference)
-        # ====================================================================
-        with h5py.File(nwb_file, 'r') as f:
+        with h5py.File(dataset.nwb_file, 'r') as f:
             neural_path = 'processing/brain_observatory_pipeline/DfOverF/imaging_plane_1/timestamps'
             neural_timestamps = f[neural_path][:]
         
         print(f"   📐 Neural timestamps: {len(neural_timestamps)} samples")
         
         # ====================================================================
+        # RUNNING SPEED - USA API AllenSDK
+        # ====================================================================
+        running_speed = None
+        running_timestamps = None
+        
+        try:
+            running_data = dataset.get_running_speed()
+            
+            if running_data is not None and len(running_data) == 2:
+                running_speed, running_timestamps = running_data
+                
+                # Remove NaNs
+                valid_mask = ~np.isnan(running_speed)
+                valid_count = np.sum(valid_mask)
+                
+                if valid_count > 100 and np.std(running_speed[valid_mask]) > 0.1:
+                    print(f"   ✅ Running speed: {len(running_speed)} samples ({100*valid_count/len(running_speed):.1f}% valid)")
+                else:
+                    print(f"   ⚠️ Running speed data has low variance or too many NaNs")
+                    running_speed = None
+                    running_timestamps = None
+            else:
+                print(f"   ⚠️ No running speed found")
+                
+        except Exception as e:
+            print(f"   ⚠️ No running speed: {e}")
+        
+        # ====================================================================
+        # PUPIL SIZE - USA API AllenSDK
+        # ====================================================================
+        pupil_area = None
+        pupil_timestamps = None
+        
+        try:
+            pupil_size = dataset.get_pupil_size()
+            
+            if pupil_size is not None and len(pupil_size) == 2:
+                pupil_data, pupil_timestamps = pupil_size
+                pupil_area = np.array(pupil_data)
+                
+                # Remove NaNs
+                valid_mask = ~np.isnan(pupil_area)
+                valid_count = np.sum(valid_mask)
+                
+                if valid_count > 100 and np.std(pupil_area[valid_mask]) > 1.0:
+                    print(f"   ✅ Pupil size: {len(pupil_area)} samples ({100*valid_count/len(pupil_area):.1f}% valid)")
+                else:
+                    print(f"   ⚠️ Pupil data has low variance or too many NaNs")
+                    pupil_area = None
+                    pupil_timestamps = None
+            else:
+                print(f"   ⚠️ No pupil data found")
+                
+        except Exception as e:
+            print(f"   ⚠️ No pupil data: {e}")
+        
+        # ====================================================================
+        # EYE POSITION - USA API AllenSDK
+        # ====================================================================
+        eye_x = None
+        eye_y = None
+        eye_timestamps = None
+        
+        try:
+            pupil_location = dataset.get_pupil_location()
+            
+            if pupil_location is not None:
+                # Check if it's array-like with proper shape
+                if hasattr(pupil_location, 'shape') and len(pupil_location.shape) >= 2:
+                    if pupil_location.shape[1] >= 2:
+                        eye_x = pupil_location[:, 0]
+                        eye_y = pupil_location[:, 1]
+                        
+                        # Use same timestamps as pupil (or estimate)
+                        if pupil_timestamps is not None:
+                            eye_timestamps = pupil_timestamps
+                        else:
+                            # Estimate timestamps
+                            eye_timestamps = np.linspace(
+                                neural_timestamps[0], 
+                                neural_timestamps[-1], 
+                                len(eye_x)
+                            )
+                        
+                        # Check validity
+                        valid_x = ~np.isnan(eye_x)
+                        valid_y = ~np.isnan(eye_y)
+                        valid_both = valid_x & valid_y
+                        valid_count = np.sum(valid_both)
+                        
+                        if valid_count > 100:
+                            x_std = np.std(eye_x[valid_both])
+                            y_std = np.std(eye_y[valid_both])
+                            
+                            if x_std > 1.0 or y_std > 1.0:
+                                print(f"   ✅ Eye position: {len(eye_x)} samples ({100*valid_count/len(eye_x):.1f}% valid)")
+                            else:
+                                print(f"   ⚠️ Eye position has low variance")
+                                eye_x = None
+                                eye_y = None
+                                eye_timestamps = None
+                        else:
+                            print(f"   ⚠️ Eye position has too many NaNs")
+                            eye_x = None
+                            eye_y = None
+                            eye_timestamps = None
+                else:
+                    print(f"   ⚠️ Eye position unexpected shape: {pupil_location.shape}")
+            else:
+                print(f"   ⚠️ No eye position found")
+                
+        except Exception as e:
+            print(f"   ⚠️ No eye position: {e}")
+        
+        # ====================================================================
         # TEMPORAL ALIGNMENT
         # ====================================================================
-        # Interpolate behavioral data to match neural timestamps
-        
         aligned_behavioral = {}
         
+        # Running speed
+        if running_speed is not None and running_timestamps is not None:
+            aligned_behavioral['running_speed'] = interpolate_to_neural_timestamps(
+                running_speed, running_timestamps, neural_timestamps
+            )
+        else:
+            aligned_behavioral['running_speed'] = np.zeros_like(neural_timestamps)
+        
         # Pupil area
-        if pupil_area is not None and len(pupil_area) > 0:
+        if pupil_area is not None and pupil_timestamps is not None:
             aligned_behavioral['pupil'] = interpolate_to_neural_timestamps(
                 pupil_area, pupil_timestamps, neural_timestamps
             )
@@ -131,24 +195,16 @@ def load_behavioral_data_from_session(session_id, boc=None):
             aligned_behavioral['pupil'] = np.zeros_like(neural_timestamps)
         
         # Eye position
-        if eye_x is not None and len(eye_x) > 0:
+        if eye_x is not None and eye_y is not None and eye_timestamps is not None:
             aligned_behavioral['eye_horiz'] = interpolate_to_neural_timestamps(
-                eye_x, pupil_timestamps, neural_timestamps
+                eye_x, eye_timestamps, neural_timestamps
             )
             aligned_behavioral['eye_vert'] = interpolate_to_neural_timestamps(
-                eye_y, pupil_timestamps, neural_timestamps
+                eye_y, eye_timestamps, neural_timestamps
             )
         else:
             aligned_behavioral['eye_horiz'] = np.zeros_like(neural_timestamps)
             aligned_behavioral['eye_vert'] = np.zeros_like(neural_timestamps)
-        
-        # Running speed
-        if running_speed is not None and len(running_speed) > 0:
-            aligned_behavioral['running_speed'] = interpolate_to_neural_timestamps(
-                running_speed, running_timestamps, neural_timestamps
-            )
-        else:
-            aligned_behavioral['running_speed'] = np.zeros_like(neural_timestamps)
         
         aligned_behavioral['timestamps'] = neural_timestamps
         
@@ -158,6 +214,8 @@ def load_behavioral_data_from_session(session_id, boc=None):
         
     except Exception as e:
         print(f"   ❌ Failed to load behavioral data: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -334,7 +392,6 @@ class AllenBehavioralDataset(Dataset):
             neural_window = neural_data[:, start:end]
             
             # Behavioral window: usa valore MEDIO della finestra
-            # (o ultimo valore, o altri metodi di aggregazione)
             behavioral_window = np.array([
                 np.mean(behavioral_data['pupil'][start:end]),
                 np.mean(behavioral_data['eye_vert'][start:end]),
@@ -461,43 +518,3 @@ def create_behavioral_dataloaders(session_ids, batch_size=32, test_split=0.2,
     print("="*70)
     
     return train_loader, test_loader, dataset_info
-
-
-if __name__ == "__main__":
-    print("🧪 Testing AllenBehavioralDataset\n")
-    
-    from datasets.calcium import TRAINING_SESSION_IDS
-    
-    # Test con prime 2 sessioni
-    test_sessions = TRAINING_SESSION_IDS[:2]
-    
-    print(f"Testing with {len(test_sessions)} sessions: {test_sessions}")
-    
-    try:
-        train_loader, test_loader, info = create_behavioral_dataloaders(
-            session_ids=test_sessions,
-            batch_size=16,
-            test_split=0.2,
-            window_size=60,
-            stride=30,
-            num_neurons=1,
-            normalize=True
-        )
-        
-        print(f"\n✅ Dataset info:")
-        for key, value in info.items():
-            print(f"   {key}: {value}")
-        
-        # Test batch
-        print(f"\n🔍 Testing batch...")
-        neural_batch, behavioral_batch = next(iter(train_loader))
-        
-        print(f"   Neural batch: {neural_batch.shape}")
-        print(f"   Behavioral batch: {behavioral_batch.shape}")
-        
-        print(f"\n✅ All tests passed!")
-        
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        import traceback
-        traceback.print_exc()

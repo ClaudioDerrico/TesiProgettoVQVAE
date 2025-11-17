@@ -105,13 +105,13 @@ class BehavioralVQVAE(nn.Module):
                 nn.ReLU(),
                 nn.Dropout(dropout_rate),
                 
-                nn.Linear(hidden_dim // 2, 4)  # 4 output: pupil, vert, horiz, velocity
+                nn.Linear(hidden_dim // 2, 1)  # 4 output: pupil, vert, horiz, velocity
             )
         else:
             # Direct linear projection
             self.behavioral_decoder = nn.Sequential(
                 nn.Flatten(),
-                nn.Linear(self.flatten_size, 4)
+                nn.Linear(self.flatten_size, 1)
             )
         
         print(f"✅ Behavioral decoder created: {self._count_decoder_params()} trainable params")
