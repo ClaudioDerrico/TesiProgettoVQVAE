@@ -1,19 +1,7 @@
 """
 Behavioral VQ-VAE: Transfer Learning from Neural Signals to Behavior
 
-Architecture:
-- Pretrained Encoder (frozen)
-- Pretrained Codebook (frozen) 
-- NEW Linear Decoder → 4 behavioral variables
-
-Input: Neural activity (1, neurons, time)
-Output: 4 behavioral variables (pupil dilation, vertical position, horizontal position, velocity)
-
- Modello principale che:
-
-Carica encoder + codebook pre-allenati (frozen)
-Sostituisce decoder con linear layer trainable
-Predice 4 variabili comportamentali
+Strategy: Use pretrained encoder + codebook (frozen) with new velocity decoder
 """
 
 import torch
@@ -25,17 +13,13 @@ class BehavioralVQVAE(nn.Module):
     """
     VQ-VAE for VELOCITY prediction using pretrained neural encoder
     
-    Key features:
-    - Loads pretrained encoder + codebook (frozen)
-    - New trainable linear decoder for velocity
-    - Output: 1 behavioral variable (velocity)
-    
-    Args:
-        pretrained_model: CalciumVQVAE or DualCalciumVQVAE instance
-        freeze_encoder: If True, freeze encoder weights
-        freeze_codebook: If True, freeze codebook weights
-        hidden_dim: Hidden dimension for velocity decoder (optional)
-        dropout_rate: Dropout for regularization
+    Architecture:
+    - Input: (num_neurons, 1, 60) - all neurons from session
+    - Encoder: processes each neuron → (num_neurons, embedding_dim, 15)
+    - Aggregate: reshape to (1, num_neurons*embedding_dim, 15)
+    - Temporal Pooling: (1, num_neurons*embedding_dim, 1)
+    - Decoder: predicts velocity from pooled features
+    - Output: 1 velocity value
     """
     
     def __init__(self, pretrained_model, freeze_encoder=True, 
@@ -72,94 +56,141 @@ class BehavioralVQVAE(nn.Module):
         # PARTE 3: VELOCITY DECODER (NEW, Trainable)
         # ========================================================================
         
-        # Get dimensions from pretrained model
         embedding_dim = pretrained_model.vector_quantization.e_dim
-        
-        # Compressed time size (depends on encoder architecture)
-        # For CalciumEncoder with 2 stride-2 layers: 60 → 30 → 15
         self.compressed_time = 15
-        
-        # Input size to decoder
-        self.flatten_size = embedding_dim * self.compressed_time
+        self.embedding_dim = embedding_dim
         
         print(f"\n📊 Velocity Decoder Architecture:")
-        print(f"   Input: ({embedding_dim}, {self.compressed_time}) → Flatten → {self.flatten_size}")
-        print(f"   Hidden: {hidden_dim}")
+        print(f"   Embedding dim: {embedding_dim}")
+        print(f"   Compressed time: {self.compressed_time}")
         print(f"   Output: 1 (velocity)")
+        print(f"   Strategy: Temporal pooling + compact decoder")
         
-        # Velocity decoder: Flatten → Linear → Output
-        if hidden_dim > 0:
-            # With hidden layers
-            self.velocity_decoder = nn.Sequential(
-                nn.Flatten(),  # (B, embedding_dim, compressed_time) → (B, flatten_size)
-                
-                nn.Linear(self.flatten_size, hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate),
-                
-                nn.Linear(hidden_dim, hidden_dim // 2),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate),
-                
-                nn.Linear(hidden_dim // 2, 1)  # ✅ Output: 1 (velocity only)
-            )
-        else:
-            # Direct linear projection
+        # Temporal pooling to reduce dimensionality
+        self.temporal_pool = nn.AdaptiveMaxPool1d(1)
+        
+        # Decoder will be built dynamically
+        self.velocity_decoder = None
+        self.hidden_dim = hidden_dim
+        self.dropout_rate = dropout_rate
+    
+    def _build_decoder(self, num_neurons_times_embedding):
+        """Build decoder with LayerNorm for stability"""
+        print(f"\n🔨 Building decoder...")
+        print(f"   Input after pooling: {num_neurons_times_embedding}")
+        
+        input_dim = num_neurons_times_embedding
+        intermediate_dim = min(1024, max(512, input_dim // 4))
+        
+        if self.hidden_dim > 0:
             self.velocity_decoder = nn.Sequential(
                 nn.Flatten(),
-                nn.Linear(self.flatten_size, 1)
+                
+                # ✅ Stage 1: Con LayerNorm
+                nn.Linear(input_dim, intermediate_dim),
+                nn.LayerNorm(intermediate_dim),  # ✅ AGGIUNTO
+                nn.ReLU(),
+                nn.Dropout(self.dropout_rate),
+                
+                # ✅ Stage 2: Con LayerNorm
+                nn.Linear(intermediate_dim, self.hidden_dim),
+                nn.LayerNorm(self.hidden_dim),  # ✅ AGGIUNTO
+                nn.ReLU(),
+                nn.Dropout(self.dropout_rate),
+                
+                # ✅ Stage 3: Con LayerNorm
+                nn.Linear(self.hidden_dim, self.hidden_dim // 2),
+                nn.LayerNorm(self.hidden_dim // 2),  # ✅ AGGIUNTO
+                nn.ReLU(),
+                nn.Dropout(self.dropout_rate),
+                
+                # Output layer (no norm)
+                nn.Linear(self.hidden_dim // 2, 1)
+            )
+        else:
+            self.velocity_decoder = nn.Sequential(
+                nn.Flatten(),
+                nn.Linear(input_dim, 1)
             )
         
-        print(f"✅ Velocity decoder created: {self._count_decoder_params()} trainable params")
-    
-    def _count_decoder_params(self):
-        """Count trainable parameters in velocity decoder"""
-        return sum(p.numel() for p in self.velocity_decoder.parameters() if p.requires_grad)
-    
+        # Xavier initialization
+        for module in self.velocity_decoder.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
+        
+        print(f"   ✅ Weights initialized with Xavier + LayerNorm added")
+        
+        # Move to device
+        device = next(self.parameters()).device
+        self.velocity_decoder = self.velocity_decoder.to(device)
+        
+        trainable_params = sum(p.numel() for p in self.velocity_decoder.parameters() if p.requires_grad)
+        print(f"✅ Decoder built: {trainable_params:,} trainable params")
+        print(f"   Architecture: {input_dim} → {intermediate_dim} → {self.hidden_dim} → {self.hidden_dim//2} → 1 (with LayerNorm)")
+        
     def forward(self, x, return_quantized=False):
         """
-        Forward pass
+        Forward pass with temporal pooling
         
         Args:
-            x: Neural data (B, neurons, time)
-            return_quantized: If True, return quantized representations
+            x: Neural data (num_neurons, 1, 60)
         
         Returns:
-            If return_quantized=False:
-                velocity_output: (B,) - predicted velocity
-            If return_quantized=True:
-                velocity_output, quantized, vq_loss, perplexity
+            velocity_output: scalar
         """
         
-        # ========================================================================
-        # ENCODE + QUANTIZE (Frozen)
-        # ========================================================================
-        with torch.no_grad() if not self.training else torch.enable_grad():
-            # Encode
-            z = self.encoder(x)
-            z = self.pre_quantization_conv(z)
-            
-            # Normalize
-            z = F.layer_norm(z, [z.size(1), z.size(2)])
-            z = torch.clamp(z, min=-10.0, max=10.0)
-            
-            # Quantize
-            vq_loss, quantized, perplexity, encodings, encoding_indices = \
-                self.vector_quantization(z)
+        num_neurons = x.shape[0]
         
         # ========================================================================
-        # VELOCITY PREDICTION (Trainable)
+        # ENCODE + QUANTIZE (Frozen but gradients flow)
         # ========================================================================
         
-        # quantized shape: (1, B*embedding_dim, compressed_time) 
-        B, embedding_dim, compressed_time = quantized.shape
-        quantized=quantized.reshape(1, B*embedding_dim, compressed_time)
-        velocity_output = self.velocity_decoder(quantized)
-        # velocity_output shape: (B, 1) → squeeze to (B,)
-        velocity_output = velocity_output.squeeze(-1)
+        # NO torch.no_grad() - allow gradient flow!
+        z = self.encoder(x)
+        z = self.pre_quantization_conv(z)
+        z = F.layer_norm(z, [z.size(1), z.size(2)])
+        z = torch.clamp(z, min=-10.0, max=10.0)
+        
+        vq_loss, quantized, perplexity, encodings, encoding_indices = \
+            self.vector_quantization(z)
+        
+        # quantized shape: (num_neurons, embedding_dim, compressed_time)
+        
+        # ========================================================================
+        # AGGREGATE NEURONS
+        # ========================================================================
+        
+        num_neurons_actual, embedding_dim, compressed_time = quantized.shape
+        quantized_aggregated = quantized.reshape(1, num_neurons_actual * embedding_dim, compressed_time)
+        
+        # quantized_aggregated shape: (1, num_neurons*embedding_dim, compressed_time)
+        
+        # ========================================================================
+        # TEMPORAL POOLING
+        # ========================================================================
+        
+        pooled = self.temporal_pool(quantized_aggregated)
+        # pooled shape: (1, num_neurons*embedding_dim, 1)
+        
+        # ========================================================================
+        # BUILD DECODER if needed
+        # ========================================================================
+        
+        if self.velocity_decoder is None:
+            num_neurons_times_embedding = num_neurons_actual * embedding_dim
+            self._build_decoder(num_neurons_times_embedding)
+        
+        # ========================================================================
+        # VELOCITY PREDICTION
+        # ========================================================================
+        
+        velocity_output = self.velocity_decoder(pooled)
+        velocity_output = velocity_output.squeeze()
         
         if return_quantized:
-            return velocity_output, quantized, vq_loss, perplexity
+            return velocity_output, quantized_aggregated, vq_loss, perplexity
         else:
             return velocity_output
     
@@ -171,7 +202,12 @@ class BehavioralVQVAE(nn.Module):
             z = F.layer_norm(z, [z.size(1), z.size(2)])
             z = torch.clamp(z, min=-10.0, max=10.0)
             _, quantized, _, _, _ = self.vector_quantization(z)
-        return quantized
+        
+        # Aggregate
+        num_neurons, embedding_dim, compressed_time = quantized.shape
+        quantized_aggregated = quantized.reshape(1, num_neurons * embedding_dim, compressed_time)
+        
+        return quantized_aggregated
     
     def get_frozen_params_count(self):
         """Count frozen parameters"""
@@ -181,21 +217,9 @@ class BehavioralVQVAE(nn.Module):
 
 
 def load_pretrained_vqvae(checkpoint_path, model_class, model_config, device):
-    """
-    Load pretrained VQ-VAE model from checkpoint
-    
-    Args:
-        checkpoint_path: Path to .pth file
-        model_class: CalciumVQVAE or DualCalciumVQVAE class
-        model_config: Dict with model configuration
-        device: torch.device
-    
-    Returns:
-        Loaded model instance
-    """
+    """Load pretrained VQ-VAE model from checkpoint"""
     print(f"\n🔄 Loading pretrained VQ-VAE from: {checkpoint_path}")
     
-    # Create model
     model = model_class(
         num_neurons=model_config['num_neurons'],
         num_hiddens=model_config['num_hiddens'],
@@ -208,7 +232,6 @@ def load_pretrained_vqvae(checkpoint_path, model_class, model_config, device):
         use_quantizer=model_config.get('use_quantizer', True)
     )
     
-    # Load checkpoint
     checkpoint = torch.load(checkpoint_path, map_location=device)
     
     if 'model_state_dict' in checkpoint:
@@ -237,22 +260,7 @@ def create_behavioral_model_from_checkpoint(
     hidden_dim=256,
     dropout_rate=0.3
 ):
-    """
-    Factory function: Create behavioral model from pretrained checkpoint
-    
-    Args:
-        checkpoint_path: Path to pretrained VQ-VAE checkpoint
-        model_class: CalciumVQVAE or DualCalciumVQVAE
-        model_config: Model configuration dict
-        device: torch.device
-        freeze_encoder: Freeze encoder weights
-        freeze_codebook: Freeze codebook weights
-        hidden_dim: Hidden dimension for behavioral decoder
-        dropout_rate: Dropout rate
-    
-    Returns:
-        BehavioralVQVAE instance ready for training
-    """
+    """Factory function: Create behavioral model from pretrained checkpoint"""
     
     print("="*70)
     print("🧠 CREATING BEHAVIORAL VQ-VAE FROM PRETRAINED MODEL")
@@ -279,11 +287,11 @@ def create_behavioral_model_from_checkpoint(
     
     print(f"\n📊 Model Summary:")
     print(f"   Frozen parameters: {frozen:,}")
-    print(f"   Trainable parameters: {trainable:,}")
+    print(f"   Trainable parameters: {trainable:,} (decoder will be added)")
     print(f"   Total parameters: {frozen + trainable:,}")
-    print(f"   Trainable ratio: {100*trainable/(frozen+trainable):.2f}%")
     
     print("\n✅ Behavioral model created and ready for training!")
+    print("   Decoder will be built at first forward pass")
     print("="*70)
     
     return behavioral_model
@@ -294,7 +302,7 @@ def create_behavioral_model_from_checkpoint(
 # ============================================================================
 
 if __name__ == "__main__":
-    print("🧪 Testing BehavioralVQVAE\n")
+    print("🧪 Testing BehavioralVQVAE with ALL neurons\n")
     
     from models.vqvae import CalciumVQVAE
     
@@ -305,8 +313,8 @@ if __name__ == "__main__":
         num_hiddens=128,
         num_residual_layers=3,
         num_residual_hiddens=64,
-        num_embeddings=512,
-        embedding_dim=64,
+        num_embeddings=32,
+        embedding_dim=32,
         commitment_cost=0.25
     )
     print(f"✅ Pretrained model created\n")
@@ -322,24 +330,28 @@ if __name__ == "__main__":
     )
     print(f"✅ Behavioral model created\n")
     
-    # Test forward pass
-    print("3. Testing forward pass...")
-    x = torch.randn(4, 1, 60)  # Batch=4, Neurons=1, Time=60
-    print(f"   Input shape: {x.shape}")
+    # Test forward pass with ALL neurons from a session
+    print("3. Testing forward pass with ALL neurons...")
+    num_neurons = 142  # Simula sessione con 142 neuroni
+    x = torch.randn(num_neurons, 1, 60)  # (num_neurons, 1, 60)
+    print(f"   Input shape: {x.shape} (all neurons from session)")
     
     # Forward pass without quantized output
     output = behavioral_model(x, return_quantized=False)
-    print(f"   Velocity output shape: {output.shape}")  # ✅ Changed comment
+    print(f"   Velocity output shape: {output.shape}")  # Should be scalar
+    print(f"   Velocity output: {output.item():.4f}")
     
     # Forward pass with quantized output
     output, quantized, vq_loss, perplexity = behavioral_model(x, return_quantized=True)
-    print(f"   Velocity output: {output.shape}")
-    print(f"   Quantized: {quantized.shape}")
+    print(f"\n   Velocity output: {output.item():.4f}")
+    print(f"   Quantized aggregated: {quantized.shape}")  # (1, 142*32, 15) = (1, 4544, 15)
     print(f"   VQ Loss: {vq_loss:.4f}")
     print(f"   Perplexity: {perplexity:.2f}")
     
     # Check shapes
-    assert output.shape == (4,), f"Output shape should be (4,), got {output.shape}"  # ✅ Fixed assertion
+    assert output.shape == torch.Size([]), f"Output should be scalar, got {output.shape}"
+    assert quantized.shape[0] == 1, "Quantized should have batch=1"
+    assert quantized.shape[1] == num_neurons * 32, f"Quantized dim should be {num_neurons*32}"
     print(f"\n✅ All tests passed!")
     
     # Model statistics
@@ -348,3 +360,17 @@ if __name__ == "__main__":
     print(f"   Frozen: {frozen:,}")
     print(f"   Trainable: {trainable:,}")
     print(f"   Total: {frozen + trainable:,}")
+    
+    # Test with different session size
+    print(f"\n4. Testing with different session size...")
+    num_neurons2 = 200
+    x2 = torch.randn(num_neurons2, 1, 60)
+    print(f"   Input shape: {x2.shape}")
+    
+    # This should fail because decoder is fixed to first session size
+    try:
+        output2 = behavioral_model(x2, return_quantized=False)
+        print(f"   ⚠️ WARNING: Model accepted different session size!")
+    except Exception as e:
+        print(f"   ✅ Expected: Model is session-specific (frozen to first session size)")
+        print(f"   Error: {type(e).__name__}")
