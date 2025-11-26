@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
 """
-VQ-VAE Training for Sequence Behavioral Prediction
+VQ-VAE Training for Sequence Behavioral Prediction - ALL NEURONS VERSION
 
 Combina:
-- Architettura VQ-VAE (come train_di_1_neurone.py)
+- Architettura VQ-VAE (come train_di_1_neurone.py) 
 - Task di predizione sequenze temporali (come train_sequence_behavioral.py)
+- USA TUTTI I NEURONI della sessione (non solo 1!)
 
-Obiettivo: Predire l'INTERA traccia temporale di velocità (60 timesteps)
-usando un VQ-VAE invece di un semplice regressor.
+Differenze chiave da train_di_1_neurone.py:
+✅ num_neurons = TUTTI i neuroni della sessione (auto-detected)
+✅ Output decoder: 1 channel (velocity sequence) invece di ricostruire neuroni
+✅ Loss: sequence MSE con optional peak weighting
+✅ Metriche: correlazione temporale su sequenze di velocità
+
+Differenze da train_sequence_behavioral.py:
+✅ Usa VQ-VAE invece di SequenceBehavioralRegressor
+✅ Include quantization loss e codebook
+✅ Encoder/decoder più potenti con residual blocks
 """
 
 import sys
@@ -34,7 +43,7 @@ from datasets.calcium import TRAINING_SESSION_IDS
 
 
 # ============================================================================
-# MODEL CONFIGURATION - Ottimizzato per predizione sequenze
+# MODEL CONFIGURATION - Ottimizzato per TUTTI i neuroni + sequence prediction
 # ============================================================================
 
 MODEL_CONFIG = {
@@ -42,8 +51,8 @@ MODEL_CONFIG = {
     'num_hiddens': 128,         # Hidden dimension aumentata
     'num_residual_layers': 3,   # Più layer per catturare pattern temporali
     'num_residual_hiddens': 64, 
-    'num_embeddings': 1024,     # Codebook grande per varietà sequenze
-    'embedding_dim': 128,       # Embeddings ricchi
+    'num_embeddings': 128,     # Codebook grande per varietà sequenze
+    'embedding_dim': 32,       # Embeddings ricchi
     'commitment_cost': 0.5,     # Bilanciato
     'dropout_rate': 0.1,        # Dropout leggero
     'use_quantizer': True,
@@ -51,10 +60,10 @@ MODEL_CONFIG = {
 
 
 # ============================================================================
-# CUSTOM DECODER FOR SEQUENCES
+# CUSTOM DECODER FOR VELOCITY SEQUENCES
 # ============================================================================
 
-class SequenceDecoder(nn.Module):
+class VelocitySequenceDecoder(nn.Module):
     """
     Decoder specializzato per sequenze temporali di velocità
     
@@ -64,7 +73,7 @@ class SequenceDecoder(nn.Module):
     
     def __init__(self, embedding_dim, num_hiddens, num_residual_layers, 
                  num_residual_hiddens, dropout_rate=0.3):
-        super(SequenceDecoder, self).__init__()
+        super(VelocitySequenceDecoder, self).__init__()
         
         from models.encoder import ImprovedResidualBlock
         
@@ -113,28 +122,32 @@ class SequenceDecoder(nn.Module):
         return x
 
 
-class SequenceVQVAE(nn.Module):
+class VelocityVQVAE(nn.Module):
     """
     VQ-VAE ottimizzato per predizione di sequenze di velocità
     
+    ✅ KEY DIFFERENCE: Usa TUTTI i neuroni come input
+    
     Differenze dal CalciumVQVAE standard:
-    - Decoder specializzato per output 1 channel (velocity)
-    - Loss pesata su picchi
+    - Input: TUTTI i neuroni della sessione (non solo 1)
+    - Decoder specializzato per output 1 channel (velocity sequence)
+    - Loss pesata su picchi (opzionale)
     - Metriche su correlazione temporale
     """
     
-    def __init__(self, num_neurons=1, num_hiddens=128, num_residual_layers=3, 
+    def __init__(self, num_neurons, num_hiddens=128, num_residual_layers=3, 
                  num_residual_hiddens=64, num_embeddings=1024, embedding_dim=128, 
                  commitment_cost=0.5, dropout_rate=0.1, use_quantizer=True):
-        super(SequenceVQVAE, self).__init__()
+        super(VelocityVQVAE, self).__init__()
         
         self.use_quantizer = use_quantizer
+        self.num_neurons = num_neurons
         
-        # Encoder (usa CalciumEncoder standard)
+        # ✅ ENCODER: Processa TUTTI i neuroni
         from models.encoder import CalciumEncoder
         
         self.encoder = CalciumEncoder(
-            num_neurons,
+            num_neurons,  # ✅ TUTTI i neuroni!
             num_hiddens,
             num_residual_layers,
             num_residual_hiddens,
@@ -160,8 +173,8 @@ class SequenceVQVAE(nn.Module):
             eps=1e-5
         )
         
-        # ✅ SEQUENCE DECODER (specializzato!)
-        self.decoder = SequenceDecoder(
+        # ✅ VELOCITY SEQUENCE DECODER (specializzato!)
+        self.decoder = VelocitySequenceDecoder(
             embedding_dim,
             num_hiddens,
             num_residual_layers,
@@ -169,7 +182,8 @@ class SequenceVQVAE(nn.Module):
             dropout_rate
         )
         
-        print(f"✅ SequenceVQVAE creato:")
+        print(f"✅ VelocityVQVAE creato:")
+        print(f"   Input: {num_neurons} neuroni")
         print(f"   Embeddings: {num_embeddings}")
         print(f"   Embedding dim: {embedding_dim}")
         print(f"   Output: 1 channel (velocity sequence)")
@@ -179,13 +193,13 @@ class SequenceVQVAE(nn.Module):
         Forward pass
         
         Args:
-            x: (B, num_neurons, 60) neural data
+            x: (B, num_neurons, 60) neural data - TUTTI I NEURONI!
         
         Returns:
-            vq_loss, x_recon, perplexity, quantized, encodings
-            x_recon shape: (B, 1, 60) - velocity sequence!
+            vq_loss, velocity_seq, perplexity, quantized, encodings
+            velocity_seq shape: (B, 1, 60) - velocity sequence!
         """
-        # Encode
+        # Encode - processa TUTTI i neuroni insieme
         z = self.encoder(x)
         z = self.pre_quantization_conv(z)
         
@@ -247,13 +261,13 @@ def weighted_sequence_loss(predictions, targets, threshold=1.5, weight_high=3.0)
     MSE pesata che dà più importanza ai timesteps con picchi
     
     Args:
-        predictions: (batch, 1, 60) sequenze predette
+        predictions: (batch, 1, 60) o (batch, 60) sequenze predette
         targets: (batch, 60) sequenze target
     
     Returns:
         weighted loss
     """
-    # Squeeze predictions
+    # Squeeze predictions se necessario
     if predictions.dim() == 3:
         predictions = predictions.squeeze(1)  # (batch, 60)
     
@@ -276,13 +290,13 @@ def weighted_sequence_loss(predictions, targets, threshold=1.5, weight_high=3.0)
 
 def train_epoch(model, dataloader, optimizer, device, epoch, config):
     """
-    Training epoch con VQ-VAE
+    Training epoch con VQ-VAE per velocity prediction
     """
     model.train()
     
     # VQ Weight Scheduling
     warmup_epochs = config.get('warmup_epochs', 30)
-    max_epochs = config.get('max_epochs', 150)
+    max_epochs = config.get('max_epochs', 200)
     
     if epoch < warmup_epochs:
         vq_weight = 0.001 * (epoch / warmup_epochs)
@@ -300,7 +314,7 @@ def train_epoch(model, dataloader, optimizer, device, epoch, config):
     pbar = tqdm(dataloader, desc=f"Epoch {epoch} [{phase}]")
     
     for batch_idx, (neural_data, velocity_seq) in enumerate(pbar):
-        neural_data = neural_data.to(device)  # (B, neurons, 60)
+        neural_data = neural_data.to(device)  # (B, ALL_neurons, 60)
         velocity_seq = velocity_seq.to(device)  # (B, 60)
         
         # Forward pass
@@ -484,7 +498,8 @@ def plot_sequence_examples(predictions, targets, epoch, n_samples=6):
         ax.legend(loc='upper right', fontsize=8)
         ax.grid(True, alpha=0.3)
     
-    plt.suptitle(f'Epoch {epoch}: VQ-VAE Sequence Reconstruction', fontsize=14, fontweight='bold')
+    plt.suptitle(f'Epoch {epoch}: VQ-VAE Velocity Sequence Reconstruction (ALL NEURONS)', 
+                 fontsize=14, fontweight='bold')
     plt.tight_layout()
     
     return fig
@@ -503,7 +518,7 @@ def plot_correlation_per_timestep(correlations, epoch):
     
     ax.set_xlabel('Timestep', fontsize=12)
     ax.set_ylabel('Correlation', fontsize=12)
-    ax.set_title(f'Epoch {epoch}: Correlation per Timestep (VQ-VAE)', 
+    ax.set_title(f'Epoch {epoch}: Correlation per Timestep (VQ-VAE, ALL NEURONS)', 
                  fontsize=14, fontweight='bold')
     ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
@@ -530,13 +545,13 @@ def main():
         
         # Training
         'batch_size': 32,
-        'num_epochs': 150,
+        'num_epochs': 200,
         'learning_rate': 5e-4,
         'weight_decay': 1e-5,
         
         # VQ scheduling
         'warmup_epochs': 30,
-        'max_epochs': 150,
+        'max_epochs': 200,
         
         # Loss
         'use_weighted_loss': False,
@@ -544,7 +559,7 @@ def main():
         'peak_weight': 3.0,
         
         # Paths
-        'save_dir': './results/sequence_vqvae',
+        'save_dir': './results/velocity_vqvae_all_neurons',
         
         # System
         'device': 'cuda' if torch.cuda.is_available() else 'cpu',
@@ -568,10 +583,10 @@ def main():
     
     # Initialize W&B
     wandb.init(
-        project="calcium-vqvae-sequences",
-        name=f"sequence_vqvae_session_{config['session_id']}",
+        project="calcium-vqvae-velocity-sequences",
+        name=f"velocity_{MODEL_CONFIG['num_embeddings']}",
         config=config,
-        tags=['vqvae', 'sequence_prediction', 'temporal']
+        tags=['vqvae', 'velocity_prediction', 'all_neurons', 'temporal']
     )
     
     print(f"✅ W&B initialized: {wandb.run.name}")
@@ -603,7 +618,7 @@ def main():
     num_neurons = sample_neural.shape[1]
     
     print(f"\n📊 Detected from dataset:")
-    print(f"   Number of neurons: {num_neurons}")
+    print(f"   Number of neurons: {num_neurons} ← ALL NEURONS!")
     
     # Update config
     MODEL_CONFIG['num_neurons'] = num_neurons
@@ -611,12 +626,11 @@ def main():
     
     # Create model
     print("\n" + "="*70)
-    print("🧠 CREATING VQ-VAE MODEL")
+    print("🧠 CREATING VQ-VAE MODEL (ALL NEURONS)")
     print("="*70)
-    print(f"🔍 Debug - Creating model with num_neurons={num_neurons}")
     
-    model = SequenceVQVAE(
-        num_neurons=num_neurons,  # ✅ Use detected value
+    model = VelocityVQVAE(
+        num_neurons=num_neurons,  # ✅ ALL NEURONS!
         num_hiddens=MODEL_CONFIG['num_hiddens'],
         num_residual_layers=MODEL_CONFIG['num_residual_layers'],
         num_residual_hiddens=MODEL_CONFIG['num_residual_hiddens'],
@@ -626,10 +640,6 @@ def main():
         dropout_rate=MODEL_CONFIG['dropout_rate'],
         use_quantizer=MODEL_CONFIG['use_quantizer']
     ).to(device)
-    
-    # Verify encoder input channels
-    print(f"🔍 Debug - Encoder first conv layer in_channels: {model.encoder._conv_1.in_channels}")
-    print(f"🔍 Debug - Encoder first conv layer weight shape: {model.encoder._conv_1.weight.shape}")
     
     total_params = sum(p.numel() for p in model.parameters())
     print(f"\n✅ Model created: {total_params:,} parameters")
@@ -722,10 +732,11 @@ def main():
                     'optimizer_state_dict': optimizer.state_dict(),
                     'model_config': MODEL_CONFIG,
                     'best_correlation': best_correlation,
-                    'test_metrics': test_metrics
+                    'test_metrics': test_metrics,
+                    'num_neurons': num_neurons
                 }
                 
-                checkpoint_path = save_dir / f'best_sequence_vqvae_session_{config["session_id"]}.pth'
+                checkpoint_path = save_dir / f'velocity_{MODEL_CONFIG["num_embeddings"]}.pth'
                 torch.save(checkpoint, checkpoint_path)
                 
                 print(f"\n💾 Saved best model (corr={best_correlation:.4f})")
@@ -745,9 +756,11 @@ def main():
     print("="*70)
     print(f"Best epoch: {best_epoch}")
     print(f"Best correlation: {best_correlation:.4f}")
+    print(f"Number of neurons used: {num_neurons} (ALL NEURONS!)")
     
     wandb.run.summary['best_epoch'] = best_epoch
     wandb.run.summary['best_correlation'] = best_correlation
+    wandb.run.summary['num_neurons'] = num_neurons
     
     wandb.finish()
     
