@@ -51,8 +51,8 @@ MODEL_CONFIG = {
     'num_hiddens': 128,         # Hidden dimension aumentata
     'num_residual_layers': 3,   # Più layer per catturare pattern temporali
     'num_residual_hiddens': 64, 
-    'num_embeddings': 128,     # Codebook grande per varietà sequenze
-    'embedding_dim': 32,       # Embeddings ricchi
+    'num_embeddings': 512,     # Codebook grande per varietà sequenze
+    'embedding_dim': 128,       # Embeddings ricchi
     'commitment_cost': 0.5,     # Bilanciato
     'dropout_rate': 0.1,        # Dropout leggero
     'use_quantizer': True,
@@ -537,7 +537,7 @@ def main():
     # Config
     config = {
         # Data
-        'session_id': TRAINING_SESSION_IDS[0],
+        'session_id': TRAINING_SESSION_IDS[2],
         'window_size': 60,
         'stride': 30,
         'test_split': 0.2,
@@ -584,7 +584,7 @@ def main():
     # Initialize W&B
     wandb.init(
         project="calcium-vqvae-velocity-sequences",
-        name=f"velocity_{MODEL_CONFIG['num_embeddings']}",
+        name=f"velocity_{MODEL_CONFIG['num_embeddings']}_{TRAINING_SESSION_IDS[2]}",
         config=config,
         tags=['vqvae', 'velocity_prediction', 'all_neurons', 'temporal']
     )
@@ -736,7 +736,7 @@ def main():
                     'num_neurons': num_neurons
                 }
                 
-                checkpoint_path = save_dir / f'velocity_{MODEL_CONFIG["num_embeddings"]}.pth'
+                checkpoint_path = save_dir / f'velocity_{MODEL_CONFIG["num_embeddings"]}_{TRAINING_SESSION_IDS[2]}.pth'
                 torch.save(checkpoint, checkpoint_path)
                 
                 print(f"\n💾 Saved best model (corr={best_correlation:.4f})")
