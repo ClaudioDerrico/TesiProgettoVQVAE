@@ -32,6 +32,7 @@ import matplotlib.pyplot as plt
 from scipy.stats import pearsonr
 
 from models.vqvae import CalciumVQVAE
+from models.dual_vqvae import DualCalciumVQVAE
 from datasets.sequence_behavioral import create_sequence_dataloaders
 from datasets.calcium import TRAINING_SESSION_IDS
 
@@ -275,7 +276,7 @@ class BehavioralSequenceVQVAE(nn.Module):
 # ============================================================================
 
 def load_pretrained_vqvae(checkpoint_path, device):
-    """Load pretrained VQ-VAE model"""
+    """Load pretrained VQ-VAE model (supports both single and dual codebook)"""
     print(f"\n🔄 Loading pretrained model from: {checkpoint_path}")
     
     checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -287,18 +288,45 @@ def load_pretrained_vqvae(checkpoint_path, device):
     for key, value in model_config.items():
         print(f"     {key}: {value}")
     
-    # Create model
-    model = CalciumVQVAE(
-        num_neurons=model_config['num_neurons'],
-        num_hiddens=model_config['num_hiddens'],
-        num_residual_layers=model_config['num_residual_layers'],
-        num_residual_hiddens=model_config['num_residual_hiddens'],
-        num_embeddings=model_config['num_embeddings'],
-        embedding_dim=model_config['embedding_dim'],
-        commitment_cost=model_config['commitment_cost'],
-        dropout_rate=model_config.get('dropout_rate', 0.0),
-        use_quantizer=model_config.get('use_quantizer', True)
-    )
+    # Detect model type: check if it's dual codebook
+    # Method 1: Check checkpoint path
+    checkpoint_path_str = str(checkpoint_path).lower()
+    is_dual = 'dual' in checkpoint_path_str or 'dual_codebook' in checkpoint_path_str
+    
+    # Method 2: Check if model_config has dual-specific parameters
+    if not is_dual:
+        is_dual = 'threshold' in model_config or 'threshold_type' in model_config
+    
+    if is_dual:
+        print(f"   🔥 Detected DUAL CODEBOOK model")
+        # Create DualCalciumVQVAE model
+        model = DualCalciumVQVAE(
+            num_neurons=model_config['num_neurons'],
+            num_hiddens=model_config['num_hiddens'],
+            num_residual_layers=model_config['num_residual_layers'],
+            num_residual_hiddens=model_config['num_residual_hiddens'],
+            num_embeddings=model_config['num_embeddings'],
+            embedding_dim=model_config['embedding_dim'],
+            commitment_cost=model_config['commitment_cost'],
+            dropout_rate=model_config.get('dropout_rate', 0.0),
+            use_quantizer=model_config.get('use_quantizer', True),
+            threshold=model_config.get('threshold', 0.0),
+            threshold_type=model_config.get('threshold_type', 'adaptive')
+        )
+    else:
+        print(f"   📦 Detected SINGLE CODEBOOK model")
+        # Create standard CalciumVQVAE model
+        model = CalciumVQVAE(
+            num_neurons=model_config['num_neurons'],
+            num_hiddens=model_config['num_hiddens'],
+            num_residual_layers=model_config['num_residual_layers'],
+            num_residual_hiddens=model_config['num_residual_hiddens'],
+            num_embeddings=model_config['num_embeddings'],
+            embedding_dim=model_config['embedding_dim'],
+            commitment_cost=model_config['commitment_cost'],
+            dropout_rate=model_config.get('dropout_rate', 0.0),
+            use_quantizer=model_config.get('use_quantizer', True)
+        )
     
     # Load weights
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -652,7 +680,7 @@ def main():
     
     config = {
         # Pretrained model
-        'pretrained_checkpoint': './results/best_single_neuron_model_512_pt2.pth',
+        'pretrained_checkpoint': './results/best_single_neuron_model_2048.pth',
         # Or use dual codebook:
         # 'pretrained_checkpoint': './results/dual_codebook/best_dual_model.pth',
         
