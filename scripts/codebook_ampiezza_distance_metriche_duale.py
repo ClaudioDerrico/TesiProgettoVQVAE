@@ -29,7 +29,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 import numpy as np
 import json
+import matplotlib.pyplot as plt
+import wandb
 from datetime import datetime
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 
 from models.dual_vqvae import DualCalciumVQVAE
 
@@ -41,6 +44,10 @@ CHECKPOINT_PATH = "results/dual_codebook/best_dual_model_32.pth"
 
 # Directory output
 OUTPUT_DIR = "ampiezza_coppie_dual"
+
+# W&B Configuration
+WANDB_PROJECT = "calcium-vqvae-amplitude-distance-dual"
+WANDB_RUN_NAME = f"amplitude-distance-dual-{datetime.now().strftime('%m%d-%H%M')}"
 
 MODEL_CONFIG = {
     'num_neurons': 1,
@@ -67,6 +74,15 @@ def load_dual_model(checkpoint_path, config, device):
     """Carica il modello dual codebook allenato"""
     print(f"🔄 Caricando modello DUAL CODEBOOK da: {checkpoint_path}")
     
+    # ✅ Carica checkpoint su CPU per evitare out of memory
+    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    
+    # Auto-infer num_embeddings se necessario
+    if 'model_config' in checkpoint:
+        model_config_checkpoint = checkpoint['model_config']
+        if 'num_embeddings' in model_config_checkpoint:
+            config['num_embeddings'] = model_config_checkpoint['num_embeddings']
+    
     model = DualCalciumVQVAE(
         num_neurons=config['num_neurons'],
         num_hiddens=config['num_hiddens'],
@@ -80,8 +96,6 @@ def load_dual_model(checkpoint_path, config, device):
         threshold=config['threshold'],
         threshold_type=config['threshold_type']
     )
-    
-    checkpoint = torch.load(checkpoint_path, map_location=device)
     
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -100,10 +114,24 @@ def load_dual_model(checkpoint_path, config, device):
         model.load_state_dict(checkpoint)
         print("✅ Modello caricato")
     
-    model = model.to(device)
+    # Sposta su GPU solo se disponibile e se device è cuda
+    if device.type == 'cuda':
+        try:
+            model = model.to(device)
+            print(f"✅ Modello spostato su {device}")
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                print(f"⚠️  GPU out of memory, usando CPU invece")
+                device = torch.device('cpu')
+                model = model.to(device)
+            else:
+                raise e
+    else:
+        model = model.to(device)
+    
     model.eval()
     
-    return model
+    return model, device
 
 def extract_dual_codebook_embeddings(model):
     """
@@ -192,6 +220,8 @@ def analyze_dual_amplitude_pairs(all_embeddings, magnitudes, base_code_idx, spli
         - amplitude_difference_rel: float (%)
         - base_codebook_type: "active" o "inactive"
         - target_codebook_type: "active" o "inactive"
+        - cosine_distance: float
+        - euclidean_distance: float
     """
     
     num_codes = all_embeddings.shape[0]
@@ -199,6 +229,12 @@ def analyze_dual_amplitude_pairs(all_embeddings, magnitudes, base_code_idx, spli
     
     base_amplitude = all_mags[base_code_idx]
     base_type = get_codebook_type(base_code_idx, split_idx)
+    
+    # Calcola distanze cosine ed euclidean
+    base_embedding = all_embeddings[base_code_idx:base_code_idx+1]
+    similarity_to_base = cosine_similarity(all_embeddings, base_embedding).flatten()
+    cosine_distances = 1 - similarity_to_base
+    euclidean_distances_arr = euclidean_distances(all_embeddings, base_embedding).flatten()
     
     pairs_data = []
     
@@ -223,6 +259,8 @@ def analyze_dual_amplitude_pairs(all_embeddings, magnitudes, base_code_idx, spli
             'amplitude_difference_rel': float(amp_diff_rel),
             'base_codebook_type': base_type,
             'target_codebook_type': target_type,
+            'cosine_distance': float(cosine_distances[target_code_idx]),
+            'euclidean_distance': float(euclidean_distances_arr[target_code_idx]),
         }
         
         pairs_data.append(pair_data)
@@ -335,6 +373,81 @@ def save_all_dual_magnitudes_json(magnitudes, output_dir, model_config, split_id
 
 
 # ============================================================================
+# FUNZIONI - VISUALIZZAZIONE E W&B
+# ============================================================================
+
+def plot_amplitude_vs_distance_dual(all_results):
+    """
+    Crea scatter plots: Distanza vs Differenza Ampiezza
+    Separato per tipo di coppia (active-active, active-inactive, inactive-inactive)
+    """
+    
+    # Raccogli tutti i dati
+    all_pairs = []
+    for result in all_results:
+        # Carica i dati JSON per questo base code
+        json_file = result['main_file']
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+            all_pairs.extend(data['pairs'])
+    
+    # Separa per tipo di coppia
+    pairs_aa = [p for p in all_pairs if p['base_codebook_type'] == 'active' and p['target_codebook_type'] == 'active']
+    pairs_ai = [p for p in all_pairs if (p['base_codebook_type'] == 'active' and p['target_codebook_type'] == 'inactive') or 
+                (p['base_codebook_type'] == 'inactive' and p['target_codebook_type'] == 'active')]
+    pairs_ii = [p for p in all_pairs if p['base_codebook_type'] == 'inactive' and p['target_codebook_type'] == 'inactive']
+    
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    
+    # Active-Active
+    if pairs_aa:
+        dists_aa = [p['cosine_distance'] for p in pairs_aa]
+        amp_diffs_aa = [p['amplitude_difference_abs'] for p in pairs_aa]
+        axes[0].scatter(dists_aa, amp_diffs_aa, alpha=0.5, s=20, color='red')
+        axes[0].set_xlabel('Cosine Distance')
+        axes[0].set_ylabel('Amplitude Difference (abs)')
+        axes[0].set_title(f'Active-Active Pairs (n={len(pairs_aa)})', fontweight='bold')
+        axes[0].grid(True, alpha=0.3)
+        if len(dists_aa) > 1:
+            corr_aa = np.corrcoef(dists_aa, amp_diffs_aa)[0, 1]
+            axes[0].text(0.05, 0.95, f'Corr: {corr_aa:.3f}', transform=axes[0].transAxes,
+                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
+    
+    # Active-Inactive
+    if pairs_ai:
+        dists_ai = [p['cosine_distance'] for p in pairs_ai]
+        amp_diffs_ai = [p['amplitude_difference_abs'] for p in pairs_ai]
+        axes[1].scatter(dists_ai, amp_diffs_ai, alpha=0.5, s=20, color='purple')
+        axes[1].set_xlabel('Cosine Distance')
+        axes[1].set_ylabel('Amplitude Difference (abs)')
+        axes[1].set_title(f'Active-Inactive Pairs (n={len(pairs_ai)})', fontweight='bold')
+        axes[1].grid(True, alpha=0.3)
+        if len(dists_ai) > 1:
+            corr_ai = np.corrcoef(dists_ai, amp_diffs_ai)[0, 1]
+            axes[1].text(0.05, 0.95, f'Corr: {corr_ai:.3f}', transform=axes[1].transAxes,
+                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
+    
+    # Inactive-Inactive
+    if pairs_ii:
+        dists_ii = [p['cosine_distance'] for p in pairs_ii]
+        amp_diffs_ii = [p['amplitude_difference_abs'] for p in pairs_ii]
+        axes[2].scatter(dists_ii, amp_diffs_ii, alpha=0.5, s=20, color='blue')
+        axes[2].set_xlabel('Cosine Distance')
+        axes[2].set_ylabel('Amplitude Difference (abs)')
+        axes[2].set_title(f'Inactive-Inactive Pairs (n={len(pairs_ii)})', fontweight='bold')
+        axes[2].grid(True, alpha=0.3)
+        if len(dists_ii) > 1:
+            corr_ii = np.corrcoef(dists_ii, amp_diffs_ii)[0, 1]
+            axes[2].text(0.05, 0.95, f'Corr: {corr_ii:.3f}', transform=axes[2].transAxes,
+                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
+    
+    plt.suptitle('Amplitude Difference vs Cosine Distance (DUAL Codebook)', fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    
+    return fig
+
+
+# ============================================================================
 # MAIN
 # ============================================================================
 
@@ -349,14 +462,36 @@ def main():
     print(f"   Num embeddings INACTIVE: {MODEL_CONFIG['num_embeddings']//2}")
     print(f"   Base codes da analizzare: {len(ALL_BASE_CODES)} ({ALL_BASE_CODES[0]} to {ALL_BASE_CODES[-1]})")
     print(f"   Output directory: {OUTPUT_DIR}/")
-    print(f"   ✨ Mode: JSON Export Only (no plots, no W&B, no summaries)")
+    print(f"   W&B Project: {WANDB_PROJECT}")
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"\n💻 Device: {device}")
     
+    # Pulisci cache GPU se disponibile
+    if device.type == 'cuda':
+        torch.cuda.empty_cache()
+        import gc
+        gc.collect()
+        print("🧹 Cache GPU pulita")
+    
+    # Inizializza W&B
+    wandb.init(
+        project=WANDB_PROJECT,
+        name=WANDB_RUN_NAME,
+        config={
+            "checkpoint_path": CHECKPOINT_PATH,
+            "num_base_codes": len(ALL_BASE_CODES),
+            **MODEL_CONFIG
+        },
+        tags=["amplitude", "distance", "dual-codebook", "codebook-analysis"]
+    )
+    
+    print(f"✅ W&B inizializzato: {wandb.run.url}")
+    
     try:
         # 1. Carica modello dual
-        model = load_dual_model(CHECKPOINT_PATH, MODEL_CONFIG, device)
+        model, device = load_dual_model(CHECKPOINT_PATH, MODEL_CONFIG, device)
+        print(f"💻 Device finale: {device}")
         
         # 2. Estrai embeddings dual
         active_emb, inactive_emb, split_idx, all_emb = extract_dual_codebook_embeddings(model)
@@ -413,7 +548,51 @@ def main():
                 'max_diff': np.max(amp_diffs)
             })
         
-        # 6. Stampa riepilogo finale
+        # 6. Crea visualizzazioni e salva su W&B
+        print(f"\n{'='*70}")
+        print("📊 CREAZIONE GRAFICI E SALVATAGGIO SU W&B")
+        print(f"{'='*70}")
+        
+        fig = plot_amplitude_vs_distance_dual(all_results)
+        wandb.log({"amplitude_vs_distance/dual_codebook": wandb.Image(fig)})
+        plt.close(fig)
+        print("   ✅ Grafico Amplitude vs Distance salvato su W&B")
+        
+        # Statistiche aggregate per W&B
+        all_pairs = []
+        for result in all_results:
+            json_file = result['main_file']
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+                all_pairs.extend(data['pairs'])
+        
+        pairs_aa = [p for p in all_pairs if p['base_codebook_type'] == 'active' and p['target_codebook_type'] == 'active']
+        pairs_ai = [p for p in all_pairs if (p['base_codebook_type'] == 'active' and p['target_codebook_type'] == 'inactive') or 
+                    (p['base_codebook_type'] == 'inactive' and p['target_codebook_type'] == 'active')]
+        pairs_ii = [p for p in all_pairs if p['base_codebook_type'] == 'inactive' and p['target_codebook_type'] == 'inactive']
+        
+        if pairs_aa:
+            dists_aa = [p['cosine_distance'] for p in pairs_aa]
+            amp_diffs_aa = [p['amplitude_difference_abs'] for p in pairs_aa]
+            if len(dists_aa) > 1:
+                corr_aa = np.corrcoef(dists_aa, amp_diffs_aa)[0, 1]
+                wandb.log({"correlations/active_active_amplitude_distance": corr_aa})
+        
+        if pairs_ai:
+            dists_ai = [p['cosine_distance'] for p in pairs_ai]
+            amp_diffs_ai = [p['amplitude_difference_abs'] for p in pairs_ai]
+            if len(dists_ai) > 1:
+                corr_ai = np.corrcoef(dists_ai, amp_diffs_ai)[0, 1]
+                wandb.log({"correlations/active_inactive_amplitude_distance": corr_ai})
+        
+        if pairs_ii:
+            dists_ii = [p['cosine_distance'] for p in pairs_ii]
+            amp_diffs_ii = [p['amplitude_difference_abs'] for p in pairs_ii]
+            if len(dists_ii) > 1:
+                corr_ii = np.corrcoef(dists_ii, amp_diffs_ii)[0, 1]
+                wandb.log({"correlations/inactive_inactive_amplitude_distance": corr_ii})
+        
+        # 7. Stampa riepilogo finale
         print(f"\n{'='*70}")
         print("✅ ANALISI COMPLETATA PER TUTTI I CODICI!")
         print(f"{'='*70}")
@@ -423,17 +602,16 @@ def main():
         print(f"     • Inactive: {sum(1 for r in all_results if r['base_type'] == 'inactive')}")
         print(f"   - File JSON coppie: {len(all_results)}")
         print(f"   - File ampiezze individuali: {all_mags_file}")
-        
-        print(f"\n💡 PROSSIMI PASSI:")
-        print(f"   1. Usa questi dati JSON per creare scatter plots")
-        print(f"   2. Combina con i dati di correlazione/distanza")
-        print(f"   3. Analizza differenze tra coppie active-active, active-inactive, etc.")
-        print(f"   4. Visualizza la relazione: Distanza vs Differenza Ampiezza per tipo di coppia")
+        print(f"\n🌐 Tutti i risultati su W&B: {wandb.run.url}")
         
     except Exception as e:
         print(f"\n❌ Errore: {e}")
         import traceback
         traceback.print_exc()
+    
+    finally:
+        wandb.finish()
+        print("✅ W&B run completato!")
 
 
 if __name__ == "__main__":

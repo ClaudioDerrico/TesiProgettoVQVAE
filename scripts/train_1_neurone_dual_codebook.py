@@ -34,31 +34,31 @@ from datasets.calcium import (
 # ============================================================================
 
 MODEL_CONFIG = {
-    # Architecture
-    'num_neurons': 1,           # Single neuron
-    'num_hiddens': 128,
-    'num_residual_layers': 3,
-    'num_residual_hiddens': 64,
-    
-    # 🔥 DUAL CODEBOOK: 512 total = 256 active + 256 inactive
-    'num_embeddings': 512,      # Will be split 50/50
-    'embedding_dim': 128,
-    'commitment_cost': 0.25,
-    'dropout_rate': 0.0,
-    'use_quantizer': True,
-    
-    # 🔥 DUAL CODEBOOK SPECIFIC
-    'threshold': 0.0,           # Will be overridden by adaptive
-    'threshold_type': 'adaptive',  # 'fixed' or 'adaptive'
-}
+       # Architecture
+       'num_neurons': 1,
+       'num_hiddens': 128,
+       'num_residual_layers': 3,
+       'num_residual_hiddens': 64,
+       
+       # 🔥 DUAL CODEBOOK: 16 total = 8 active + 8 inactive
+       'num_embeddings': 16,        # ⬅️ CAMBIA QUI (era 2048)
+       'embedding_dim': 16,         # ⬅️ CAMBIA QUI (era 128)
+       'commitment_cost': 0.25,
+       'dropout_rate': 0.1,         # ⬅️ CAMBIA QUI (era 0.0)
+       'use_quantizer': True,
+       
+       # 🔥 DUAL CODEBOOK SPECIFIC
+       'threshold': 0.0,
+       'threshold_type': 'adaptive',  # ✅ Già corretto
+   }
 
 # Training Configuration
 TRAIN_CONFIG = {
-    'batch_size': 64,
+    'batch_size': 64,  # Ridotto per GPU - aumenta se hai molta memoria GPU
     'learning_rate': 0.0005,
-    'max_epochs': 205,
+    'max_epochs': 105,
     'patience': 40,
-    'warmup_epochs': 30,
+    'warmup_epochs': 20,
     'weight_decay': 0.0001,
     
     # Loss weights
@@ -140,7 +140,7 @@ def train_epoch_dual_codebook(model, dataloader, optimizer, device, epoch, confi
     total_perplexity = 0
     total_smooth_loss = 0
     
-    for neural_data in dataloader:
+    for batch_idx, neural_data in enumerate(dataloader):
         neural_data = neural_data.to(device)
         
         # Forward pass
@@ -162,6 +162,10 @@ def train_epoch_dual_codebook(model, dataloader, optimizer, device, epoch, confi
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         
         optimizer.step()
+        
+        # Pulisci cache GPU ogni 50 batch per evitare accumulo memoria
+        if device.type == 'cuda' and (batch_idx + 1) % 50 == 0:
+            torch.cuda.empty_cache()
         
         # Accumulate losses
         total_loss += loss.item()
@@ -445,7 +449,7 @@ def main():
     # Initialize W&B
     wandb.init(
         project="calcium-vqvae-dual-codebook",
-        name="dual-512codes-single-neuron",
+        name="dual-32-codes-modificato-single-neuron",
         config={
             "model_type": "DualCalciumVQVAE_SingleNeuron",
             "num_sessions_train": len(TRAINING_SESSION_IDS),
@@ -468,9 +472,28 @@ def main():
         print(f"   {key}: {value}")
     print("="*70)
     
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    if torch.cuda.is_available():
-        torch.backends.cudnn.benchmark = True
+    # 🔧 CONFIGURAZIONE GPU/CPU
+    # Dopo riavvio PC, prova con GPU (FORCE_CPU=False)
+    # Se ancora da errori, riduci batch_size o torna a CPU
+    FORCE_CPU = False  # ⬅️ IMPOSTATO A False per usare GPU dopo riavvio
+    
+    if FORCE_CPU:
+        device = torch.device('cpu')
+        print("⚠️  CPU FORZATO (FORCE_CPU=True)")
+    else:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if torch.cuda.is_available():
+            # Ottimizzazioni GPU per evitare errori memoria
+            torch.backends.cudnn.benchmark = False  # Disabilitato per evitare errori
+            torch.backends.cudnn.deterministic = True  # Più stabile
+            # Pulisci cache GPU all'inizio
+            torch.cuda.empty_cache()
+            print(f"✅ GPU disponibile: {torch.cuda.get_device_name(0)}")
+            print(f"   Memoria GPU: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+            print(f"   Batch size: {TRAIN_CONFIG['batch_size']} (ridotto per evitare errori memoria)")
+        else:
+            print("⚠️  GPU non disponibile, usando CPU")
+    
     print(f"💻 Using device: {device}")
     
     # Create results directory
@@ -590,7 +613,7 @@ def main():
                         'test_metrics': test_metrics,
                         'codebook_stats': model.get_codebook_usage()
                     }
-                    torch.save(checkpoint, './results/dual_codebook/best_dual_model.pth')
+                    torch.save(checkpoint, './results/dual_codebook/best_dual_model_32_modificato.pth')
                     print(f"  💾 Saved best model (corr={best_test_corr:.4f})")
                 else:
                     patience_counter += 1

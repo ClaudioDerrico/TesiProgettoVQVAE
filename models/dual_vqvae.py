@@ -101,9 +101,10 @@ class DualCalciumVQVAE(nn.Module):
         z = torch.clamp(z, min=-10.0, max=10.0)
         
         if self.use_quantizer:
-            # Dual codebook quantization
+            # Dual codebook quantization con VINCOLO
+            # Passa x_original per forzare selezione codebook basata su attività reale
             vq_loss, quantized, perplexity, encodings, encoding_indices = \
-                self.vector_quantization(z)
+                self.vector_quantization(z, x_original=x)
         else:
             # No quantization
             quantized = z

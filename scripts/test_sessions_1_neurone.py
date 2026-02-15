@@ -33,20 +33,20 @@ from datasets.calcium import TRAINING_SESSION_IDS, TEST_SESSION_IDS
 # ============================================================================
 
 WANDB_PROJECT = "calcium-vqvae-cross-session-single-neuron"
-WANDB_RUN_NAME = f"test-single-neuron-{datetime.now().strftime('%m%d-%H%M')}"
+WANDB_RUN_NAME = f"test-single-neuron-1024_pt2"
 
-CHECKPOINT_PATH = "results/best_single_neuron_model.pth"  # ✅ Modello single neuron
+CHECKPOINT_PATH = "results/best_single_neuron_model_1024_pt2.pth"  # ✅ Modello single neuron
 SAVE_DIR = "cross_session_single_neuron_analysis"
 
 MODEL_CONFIG = {
-    'num_neurons': 1,              # ✅ 1 NEURONE
-    'num_hiddens': 128,
-    'num_residual_layers': 3,
-    'num_residual_hiddens': 64,
-    'num_embeddings': 32,
-    'embedding_dim': 32,
-    'commitment_cost': 0.25,
-    'dropout_rate': 0.1,
+    'num_neurons': 1,           
+    'num_hiddens': 128,         # ← AUMENTATO (era 64)
+    'num_residual_layers': 3,   # ← AUMENTATO (era 2)
+    'num_residual_hiddens': 64, # ← AUMENTATO (era 32)
+    'num_embeddings': 1024,       # ← AUMENTATO (era 16)
+    'embedding_dim': 128,        # ← AUMENTATO per embeddings 256(era 32)
+    'commitment_cost': 0.5,    # ← aumentato per 256 (era 0.25)
+    'dropout_rate': 0.0,        # ← AGGIUNTO dropout leggero
     'use_quantizer': True,
 }
 

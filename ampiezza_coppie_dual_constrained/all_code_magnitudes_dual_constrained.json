@@ -1,0 +1,208 @@
+{
+  "metadata": {
+    "timestamp": "20260214_130906",
+    "num_codes": 32,
+    "num_active": 16,
+    "num_inactive": 16,
+    "split_index": 16,
+    "model_config": {
+      "num_neurons": 1,
+      "num_hiddens": 128,
+      "num_residual_layers": 3,
+      "num_residual_hiddens": 64,
+      "num_embeddings": 32,
+      "embedding_dim": 32,
+      "commitment_cost": 0.25,
+      "dropout_rate": 0.0,
+      "use_quantizer": true,
+      "threshold": 0.0,
+      "threshold_type": "adaptive"
+    },
+    "checkpoint": "results/dual_codebook_constrained/best_dual_model_32_constrained.pth",
+    "model_type": "DualCalciumVQVAE_Constrained"
+  },
+  "magnitudes": [
+    {
+      "code_index": 0,
+      "amplitude": 4.477119445800781,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 1,
+      "amplitude": 5.7159504890441895,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 2,
+      "amplitude": 5.33929967880249,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 3,
+      "amplitude": 5.953361988067627,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 4,
+      "amplitude": 5.290001392364502,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 5,
+      "amplitude": 5.162979602813721,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 6,
+      "amplitude": 6.247601509094238,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 7,
+      "amplitude": 5.891519546508789,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 8,
+      "amplitude": 5.303559303283691,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 9,
+      "amplitude": 4.562462329864502,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 10,
+      "amplitude": 5.443373680114746,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 11,
+      "amplitude": 4.683591365814209,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 12,
+      "amplitude": 5.804861068725586,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 13,
+      "amplitude": 6.713682651519775,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 14,
+      "amplitude": 5.820825099945068,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 15,
+      "amplitude": 5.01287841796875,
+      "codebook_type": "active"
+    },
+    {
+      "code_index": 16,
+      "amplitude": 5.818994998931885,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 17,
+      "amplitude": 5.456916332244873,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 18,
+      "amplitude": 6.210042476654053,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 19,
+      "amplitude": 4.9991135597229,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 20,
+      "amplitude": 5.497217655181885,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 21,
+      "amplitude": 5.873323440551758,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 22,
+      "amplitude": 5.075408458709717,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 23,
+      "amplitude": 5.880411624908447,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 24,
+      "amplitude": 5.895179748535156,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 25,
+      "amplitude": 5.379959583282471,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 26,
+      "amplitude": 5.150138854980469,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 27,
+      "amplitude": 5.666323661804199,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 28,
+      "amplitude": 6.144670486450195,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 29,
+      "amplitude": 5.511253833770752,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 30,
+      "amplitude": 5.455111026763916,
+      "codebook_type": "inactive"
+    },
+    {
+      "code_index": 31,
+      "amplitude": 5.499079704284668,
+      "codebook_type": "inactive"
+    }
+  ],
+  "statistics": {
+    "overall": {
+      "mean": 5.529256820678711,
+      "std": 0.4912249445915222,
+      "min": 4.477119445800781,
+      "max": 6.713682651519775,
+      "min_code": 0,
+      "max_code": 13
+    },
+    "active": {
+      "mean": 5.46394157409668,
+      "std": 0.5951277613639832,
+      "min": 4.477119445800781,
+      "max": 6.713682651519775
+    },
+    "inactive": {
+      "mean": 5.594571590423584,
+      "std": 0.3462581932544708,
+      "min": 4.9991135597229,
+      "max": 6.210042476654053
+    }
+  }
+}

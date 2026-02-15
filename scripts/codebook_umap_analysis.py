@@ -53,7 +53,7 @@ from models.vqvae import CalciumVQVAE
 # CONFIGURAZIONE
 # ============================================================================
 
-CHECKPOINT_PATH = "results/dual_codebook/best_dual_model.pth"
+CHECKPOINT_PATH = "results/dual_codebook/best_dual_model_512.pth"
 
 # W&B Configuration
 WANDB_PROJECT = "calcium-vqvae-codebook-umap-analysis"
@@ -64,8 +64,8 @@ MODEL_CONFIG = {
     'num_hiddens': 128,
     'num_residual_layers': 3,
     'num_residual_hiddens': 64,
-    'num_embeddings': 32,
-    'embedding_dim': 32,
+    'num_embeddings': 512,
+    'embedding_dim': 128,
     'commitment_cost': 0.25,
     'dropout_rate': 0.1,
     'use_quantizer': True,

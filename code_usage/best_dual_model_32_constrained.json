@@ -1,0 +1,298 @@
+{
+  "metadata": {
+    "checkpoint_path": "results/dual_codebook/best_dual_model_32_constrained.pth",
+    "dataset_analyzed": "train",
+    "model_config": {
+      "num_neurons": 1,
+      "num_hiddens": 128,
+      "num_residual_layers": 3,
+      "num_residual_hiddens": 64,
+      "num_embeddings": 32,
+      "embedding_dim": 32,
+      "commitment_cost": 0.25,
+      "dropout_rate": 0.1,
+      "use_quantizer": true,
+      "threshold": 0.0,
+      "threshold_type": "adaptive"
+    },
+    "model_type": "DualCalciumVQVAE"
+  },
+  "results": {
+    "train": {
+      "num_embeddings_total": 32,
+      "num_embeddings_per_codebook": 16,
+      "active": {
+        "num_embeddings": 16,
+        "used_codes": 16,
+        "usage_percentage": 100.0,
+        "unused_codes": [],
+        "total_encodings": 173241,
+        "code_usage": {
+          "14": 19070,
+          "2": 1284,
+          "6": 69191,
+          "7": 25790,
+          "1": 13435,
+          "3": 23943,
+          "12": 17360,
+          "4": 712,
+          "8": 453,
+          "11": 46,
+          "5": 78,
+          "13": 636,
+          "0": 518,
+          "10": 55,
+          "9": 667,
+          "15": 3
+        },
+        "top_10_codes": [
+          {
+            "code_index": 6,
+            "count": 69191
+          },
+          {
+            "code_index": 7,
+            "count": 25790
+          },
+          {
+            "code_index": 3,
+            "count": 23943
+          },
+          {
+            "code_index": 14,
+            "count": 19070
+          },
+          {
+            "code_index": 12,
+            "count": 17360
+          },
+          {
+            "code_index": 1,
+            "count": 13435
+          },
+          {
+            "code_index": 2,
+            "count": 1284
+          },
+          {
+            "code_index": 4,
+            "count": 712
+          },
+          {
+            "code_index": 9,
+            "count": 667
+          },
+          {
+            "code_index": 13,
+            "count": 636
+          }
+        ],
+        "code_frequencies": {
+          "0": {
+            "count": 518,
+            "percentage": 0.2990054317395997
+          },
+          "1": {
+            "count": 13435,
+            "percentage": 7.755092616643866
+          },
+          "2": {
+            "count": 1284,
+            "percentage": 0.741164043153757
+          },
+          "3": {
+            "count": 23943,
+            "percentage": 13.820631374790032
+          },
+          "4": {
+            "count": 712,
+            "percentage": 0.41098816100114866
+          },
+          "5": {
+            "count": 78,
+            "percentage": 0.04502398392990112
+          },
+          "6": {
+            "count": 69191,
+            "percentage": 39.939159898638316
+          },
+          "7": {
+            "count": 25790,
+            "percentage": 14.886776225027562
+          },
+          "8": {
+            "count": 453,
+            "percentage": 0.2614854451313488
+          },
+          "9": {
+            "count": 667,
+            "percentage": 0.38501278565697494
+          },
+          "10": {
+            "count": 55,
+            "percentage": 0.03174768097621233
+          },
+          "11": {
+            "count": 46,
+            "percentage": 0.026552605907377586
+          },
+          "12": {
+            "count": 17360,
+            "percentage": 10.020722577219018
+          },
+          "13": {
+            "count": 636,
+            "percentage": 0.3671186381976553
+          },
+          "14": {
+            "count": 19070,
+            "percentage": 11.007786840297621
+          },
+          "15": {
+            "count": 3,
+            "percentage": 0.0017316916896115816
+          }
+        }
+      },
+      "inactive": {
+        "num_embeddings": 16,
+        "used_codes": 16,
+        "usage_percentage": 100.0,
+        "unused_codes": [],
+        "total_encodings": 173964,
+        "code_usage": {
+          "10": 7290,
+          "6": 6604,
+          "3": 8654,
+          "9": 12112,
+          "15": 12167,
+          "14": 13657,
+          "11": 15930,
+          "4": 12214,
+          "1": 11730,
+          "5": 12615,
+          "8": 12340,
+          "0": 13251,
+          "2": 3469,
+          "7": 13035,
+          "13": 13026,
+          "12": 5870
+        },
+        "top_10_codes": [
+          {
+            "code_index": 11,
+            "count": 15930
+          },
+          {
+            "code_index": 14,
+            "count": 13657
+          },
+          {
+            "code_index": 0,
+            "count": 13251
+          },
+          {
+            "code_index": 7,
+            "count": 13035
+          },
+          {
+            "code_index": 13,
+            "count": 13026
+          },
+          {
+            "code_index": 5,
+            "count": 12615
+          },
+          {
+            "code_index": 8,
+            "count": 12340
+          },
+          {
+            "code_index": 4,
+            "count": 12214
+          },
+          {
+            "code_index": 15,
+            "count": 12167
+          },
+          {
+            "code_index": 9,
+            "count": 12112
+          }
+        ],
+        "code_frequencies": {
+          "0": {
+            "count": 13251,
+            "percentage": 7.617093191694833
+          },
+          "1": {
+            "count": 11730,
+            "percentage": 6.742774367110436
+          },
+          "2": {
+            "count": 3469,
+            "percentage": 1.994090731415695
+          },
+          "3": {
+            "count": 8654,
+            "percentage": 4.974592444413787
+          },
+          "4": {
+            "count": 12214,
+            "percentage": 7.020992849095214
+          },
+          "5": {
+            "count": 12615,
+            "percentage": 7.25150031040905
+          },
+          "6": {
+            "count": 6604,
+            "percentage": 3.7961877169989195
+          },
+          "7": {
+            "count": 13035,
+            "percentage": 7.492929571635511
+          },
+          "8": {
+            "count": 12340,
+            "percentage": 7.093421627463154
+          },
+          "9": {
+            "count": 12112,
+            "percentage": 6.962360028511647
+          },
+          "10": {
+            "count": 7290,
+            "percentage": 4.190522177002139
+          },
+          "11": {
+            "count": 15930,
+            "percentage": 9.157066979375044
+          },
+          "12": {
+            "count": 5870,
+            "percentage": 3.3742613414269615
+          },
+          "13": {
+            "count": 13026,
+            "percentage": 7.487756087466373
+          },
+          "14": {
+            "count": 13657,
+            "percentage": 7.850474810880412
+          },
+          "15": {
+            "count": 12167,
+            "percentage": 6.993975765100825
+          }
+        }
+      },
+      "combined": {
+        "used_codes": 32,
+        "usage_percentage": 100.0,
+        "total_encodings": 347205,
+        "samples_processed": 23147
+      }
+    }
+  }
+}

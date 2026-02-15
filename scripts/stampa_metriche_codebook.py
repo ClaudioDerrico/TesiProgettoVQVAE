@@ -22,24 +22,28 @@ from scipy.stats import pearsonr
 from datasets.calcium import UnifiedMultiSessionDataset
 
 from models.vqvae import CalciumVQVAE
+from models.dual_vqvae import DualCalciumVQVAE
 from datasets.calcium import TEST_SESSION_IDS
 
 # ============================================================================
 # CONFIGURAZIONE - MODIFICA QUI
 # ============================================================================
 
-CHECKPOINT_PATH = "results/dual_codebook/best_dual_model_512.pth"  # ✅ MODIFICA QUESTO
+CHECKPOINT_PATH = "results/dual_codebook_constrained/best_dual_model_1024_constrained.pth"  # ✅ MODIFICA QUESTO
 
 MODEL_CONFIG = {
     'num_neurons': 1,
     'num_hiddens': 128,
     'num_residual_layers': 3,
     'num_residual_hiddens': 64,
-    'num_embeddings': 256,
-    'embedding_dim': 64,
+    'num_embeddings': 1024,
+    'embedding_dim': 128,
     'commitment_cost': 0.25,
     'dropout_rate': 0.1,
     'use_quantizer': True,
+    # ✅ DUAL CODEBOOK SPECIFIC
+    'threshold': 0.0,
+    'threshold_type': 'adaptive',
 }
 
 # Sessioni da testare (modifica se necessario)
@@ -55,22 +59,52 @@ STRIDE = 50
 # ============================================================================
 
 def load_trained_model(checkpoint_path, config, device):
-    """Carica il modello dai pesi salvati"""
+    """Carica il modello dai pesi salvati (supporta sia single che dual codebook)"""
     print(f"🔄 Caricando modello da: {checkpoint_path}")
     
-    model = CalciumVQVAE(
-        num_neurons=config['num_neurons'],
-        num_hiddens=config['num_hiddens'],
-        num_residual_layers=config['num_residual_layers'],
-        num_residual_hiddens=config['num_residual_hiddens'],
-        num_embeddings=config['num_embeddings'],
-        embedding_dim=config['embedding_dim'],
-        commitment_cost=config['commitment_cost'],
-        dropout_rate=config.get('dropout_rate', 0.0),
-        use_quantizer=config.get('use_quantizer', True)
-    )
-    
     checkpoint = torch.load(checkpoint_path, map_location=device)
+    
+    # Detect model type: check if it's dual codebook
+    checkpoint_path_str = str(checkpoint_path).lower()
+    is_dual = 'dual' in checkpoint_path_str or 'dual_codebook' in checkpoint_path_str
+    
+    # Method 2: Check if model_config has dual-specific parameters
+    if 'model_config' in checkpoint:
+        model_config_checkpoint = checkpoint['model_config']
+        if not is_dual:
+            is_dual = 'threshold' in model_config_checkpoint or 'threshold_type' in model_config_checkpoint
+    elif not is_dual:
+        # Check config passed as parameter
+        is_dual = 'threshold' in config or 'threshold_type' in config
+    
+    if is_dual:
+        print(f"   🔥 Detected DUAL CODEBOOK model")
+        model = DualCalciumVQVAE(
+            num_neurons=config['num_neurons'],
+            num_hiddens=config['num_hiddens'],
+            num_residual_layers=config['num_residual_layers'],
+            num_residual_hiddens=config['num_residual_hiddens'],
+            num_embeddings=config['num_embeddings'],
+            embedding_dim=config['embedding_dim'],
+            commitment_cost=config['commitment_cost'],
+            dropout_rate=config.get('dropout_rate', 0.0),
+            use_quantizer=config.get('use_quantizer', True),
+            threshold=config.get('threshold', 0.0),
+            threshold_type=config.get('threshold_type', 'adaptive')
+        )
+    else:
+        print(f"   📦 Detected SINGLE CODEBOOK model")
+        model = CalciumVQVAE(
+            num_neurons=config['num_neurons'],
+            num_hiddens=config['num_hiddens'],
+            num_residual_layers=config['num_residual_layers'],
+            num_residual_hiddens=config['num_residual_hiddens'],
+            num_embeddings=config['num_embeddings'],
+            embedding_dim=config['embedding_dim'],
+            commitment_cost=config['commitment_cost'],
+            dropout_rate=config.get('dropout_rate', 0.0),
+            use_quantizer=config.get('use_quantizer', True)
+        )
     
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -114,6 +148,8 @@ def evaluate_session(model, session_id, device, window_size, stride):
         
         all_mse = []
         all_corr = []
+        all_mae = []
+        all_snr = []
         
         samples_processed = 0
         
@@ -123,7 +159,7 @@ def evaluate_session(model, session_id, device, window_size, stride):
                 neural_data = batch_data.to(device)
                 
                 # Forward pass
-                vq_loss, neural_recon, perplexity, _, _ = model(neural_data)
+                _, neural_recon, _, _, _ = model(neural_data)
                 
                 # Converti in numpy
                 original = neural_data.cpu().numpy()
@@ -134,8 +170,21 @@ def evaluate_session(model, session_id, device, window_size, stride):
                     sample_orig = original[i, 0, :]  # Shape: (60,)
                     sample_recon = reconstructed[i, 0, :]
                     
+                    # MSE
                     mse = np.mean((sample_orig - sample_recon) ** 2)
                     
+                    # MAE
+                    mae = np.mean(np.abs(sample_orig - sample_recon))
+                    
+                    # SNR (Signal-to-Noise Ratio)
+                    signal_power = np.mean(sample_orig ** 2)
+                    noise_power = np.mean((sample_orig - sample_recon) ** 2)
+                    if noise_power > 0:
+                        snr = 10 * np.log10(signal_power / noise_power)
+                    else:
+                        snr = 0.0
+                    
+                    # Correlation
                     if np.std(sample_orig) > 1e-8 and np.std(sample_recon) > 1e-8:
                         corr, _ = pearsonr(sample_orig, sample_recon)
                         corr = corr if np.isfinite(corr) else 0
@@ -144,6 +193,8 @@ def evaluate_session(model, session_id, device, window_size, stride):
                     
                     all_mse.append(mse)
                     all_corr.append(corr)
+                    all_mae.append(mae)
+                    all_snr.append(snr)
                     samples_processed += 1
                 
                 # Print ogni 50 batch
@@ -153,16 +204,22 @@ def evaluate_session(model, session_id, device, window_size, stride):
         # Calcola metriche finali
         mse_mean = float(np.mean(all_mse))
         corr_mean = float(np.mean(all_corr))
+        mae_mean = float(np.mean(all_mae))
+        snr_mean = float(np.mean(all_snr))
         
         print(f"\n📈 RISULTATI:")
         print(f"   Campioni analizzati: {samples_processed}")
         print(f"   MSE mean:  {mse_mean:.6f}")
+        print(f"   MAE mean:  {mae_mean:.6f}")
+        print(f"   SNR mean:  {snr_mean:.2f} dB")
         print(f"   Corr mean: {corr_mean:.4f}")
         
         return {
             'session_id': int(session_id),
             'num_samples': samples_processed,
             'mse_mean': mse_mean,
+            'mae_mean': mae_mean,
+            'snr_mean': snr_mean,
             'corr_mean': corr_mean,
             'success': True
         }
@@ -185,7 +242,7 @@ def save_results_to_json(results, checkpoint_path):
     - model_config indentato leggibile
     - session_results: ogni sessione su una singola riga
     """
-    output_dir = Path('metrics_results')
+    output_dir = Path('metrics_result2')
     output_dir.mkdir(parents=True, exist_ok=True)
 
     checkpoint_name = Path(checkpoint_path).stem
@@ -199,6 +256,8 @@ def save_results_to_json(results, checkpoint_path):
             sessions.append({
                 "session_id": int(r["session_id"]),
                 "mse_mean": round(float(r["mse_mean"]), 6),
+                "mae_mean": round(float(r["mae_mean"]), 6),
+                "snr_mean": round(float(r["snr_mean"]), 2),
                 "corr_mean": round(float(r["corr_mean"]), 4),
                 "samples": int(r["num_samples"])
             })
@@ -272,19 +331,23 @@ def main():
         
         # Calcola medie
         avg_mse = np.mean([r['mse_mean'] for r in successful_results])
+        avg_mae = np.mean([r['mae_mean'] for r in successful_results])
+        avg_snr = np.mean([r['snr_mean'] for r in successful_results])
         avg_corr = np.mean([r['corr_mean'] for r in successful_results])
         
         print(f"\n📊 Metriche medie su {len(successful_results)} sessioni:")
         print(f"   MSE mean:  {avg_mse:.6f}")
+        print(f"   MAE mean:  {avg_mae:.6f}")
+        print(f"   SNR mean:  {avg_snr:.2f} dB")
         print(f"   Corr mean: {avg_corr:.4f}")
         
         # Tabella risultati
         print(f"\n📋 Risultati per sessione:")
-        print(f"{'Session ID':<15} {'MSE Mean':<15} {'Corr Mean':<15} {'Samples':<10}")
-        print("-" * 55)
+        print(f"{'Session ID':<15} {'MSE Mean':<15} {'MAE Mean':<15} {'SNR (dB)':<12} {'Corr Mean':<15} {'Samples':<10}")
+        print("-" * 82)
         
         for r in successful_results:
-            print(f"{r['session_id']:<15} {r['mse_mean']:<15.6f} {r['corr_mean']:<15.4f} {r['num_samples']:<10}")
+            print(f"{r['session_id']:<15} {r['mse_mean']:<15.6f} {r['mae_mean']:<15.6f} {r['snr_mean']:<12.2f} {r['corr_mean']:<15.4f} {r['num_samples']:<10}")
     else:
         print(f"\n❌ Nessuna sessione testata con successo")
     

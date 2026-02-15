@@ -1,0 +1,202 @@
+{
+  "metadata": {
+    "checkpoint_path": "results/dual_codebook/best_dual_model_16_constrained.pth",
+    "dataset_analyzed": "train",
+    "model_config": {
+      "num_neurons": 1,
+      "num_hiddens": 128,
+      "num_residual_layers": 3,
+      "num_residual_hiddens": 64,
+      "num_embeddings": 16,
+      "embedding_dim": 16,
+      "commitment_cost": 0.25,
+      "dropout_rate": 0.1,
+      "use_quantizer": true,
+      "threshold": 0.0,
+      "threshold_type": "adaptive"
+    },
+    "model_type": "DualCalciumVQVAE"
+  },
+  "results": {
+    "train": {
+      "num_embeddings_total": 16,
+      "num_embeddings_per_codebook": 8,
+      "active": {
+        "num_embeddings": 8,
+        "used_codes": 8,
+        "usage_percentage": 100.0,
+        "unused_codes": [],
+        "total_encodings": 173241,
+        "code_usage": {
+          "4": 48975,
+          "0": 1175,
+          "6": 88468,
+          "3": 12928,
+          "1": 19957,
+          "7": 1082,
+          "5": 598,
+          "2": 58
+        },
+        "top_10_codes": [
+          {
+            "code_index": 6,
+            "count": 88468
+          },
+          {
+            "code_index": 4,
+            "count": 48975
+          },
+          {
+            "code_index": 1,
+            "count": 19957
+          },
+          {
+            "code_index": 3,
+            "count": 12928
+          },
+          {
+            "code_index": 0,
+            "count": 1175
+          },
+          {
+            "code_index": 7,
+            "count": 1082
+          },
+          {
+            "code_index": 5,
+            "count": 598
+          },
+          {
+            "code_index": 2,
+            "count": 58
+          }
+        ],
+        "code_frequencies": {
+          "0": {
+            "count": 1175,
+            "percentage": 0.6782459117645361
+          },
+          "1": {
+            "count": 19957,
+            "percentage": 11.519790349859445
+          },
+          "2": {
+            "count": 58,
+            "percentage": 0.03347937266582391
+          },
+          "3": {
+            "count": 12928,
+            "percentage": 7.462436721099509
+          },
+          "4": {
+            "count": 48975,
+            "percentage": 28.26986683290907
+          },
+          "5": {
+            "count": 598,
+            "percentage": 0.34518387679590856
+          },
+          "6": {
+            "count": 88468,
+            "percentage": 51.06643346551913
+          },
+          "7": {
+            "count": 1082,
+            "percentage": 0.6245634693865771
+          }
+        }
+      },
+      "inactive": {
+        "num_embeddings": 8,
+        "used_codes": 8,
+        "usage_percentage": 100.0,
+        "unused_codes": [],
+        "total_encodings": 173964,
+        "code_usage": {
+          "6": 17302,
+          "2": 37742,
+          "7": 14240,
+          "3": 31476,
+          "0": 5710,
+          "5": 31250,
+          "4": 35850,
+          "1": 394
+        },
+        "top_10_codes": [
+          {
+            "code_index": 2,
+            "count": 37742
+          },
+          {
+            "code_index": 4,
+            "count": 35850
+          },
+          {
+            "code_index": 3,
+            "count": 31476
+          },
+          {
+            "code_index": 5,
+            "count": 31250
+          },
+          {
+            "code_index": 6,
+            "count": 17302
+          },
+          {
+            "code_index": 7,
+            "count": 14240
+          },
+          {
+            "code_index": 0,
+            "count": 5710
+          },
+          {
+            "code_index": 1,
+            "count": 394
+          }
+        ],
+        "code_frequencies": {
+          "0": {
+            "count": 5710,
+            "percentage": 3.282288289531168
+          },
+          "1": {
+            "count": 394,
+            "percentage": 0.22648364029339402
+          },
+          "2": {
+            "count": 37742,
+            "percentage": 21.695293279069233
+          },
+          "3": {
+            "count": 31476,
+            "percentage": 18.09339863420018
+          },
+          "4": {
+            "count": 35850,
+            "percentage": 20.60771194040146
+          },
+          "5": {
+            "count": 31250,
+            "percentage": 17.963486698397368
+          },
+          "6": {
+            "count": 17302,
+            "percentage": 9.945735899381482
+          },
+          "7": {
+            "count": 14240,
+            "percentage": 8.185601618725713
+          }
+        }
+      },
+      "combined": {
+        "used_codes": 16,
+        "usage_percentage": 100.0,
+        "total_encodings": 347205,
+        "samples_processed": 23147
+      }
+    }
+  }
+}

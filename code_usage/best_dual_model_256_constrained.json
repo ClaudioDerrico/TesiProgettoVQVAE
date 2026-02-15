@@ -1,0 +1,1420 @@
+{
+  "metadata": {
+    "checkpoint_path": "results/dual_codebook_constrained/best_dual_model_256_constrained.pth",
+    "dataset_analyzed": "train",
+    "model_config": {
+      "num_neurons": 1,
+      "num_hiddens": 128,
+      "num_residual_layers": 3,
+      "num_residual_hiddens": 64,
+      "num_embeddings": 256,
+      "embedding_dim": 64,
+      "commitment_cost": 0.25,
+      "dropout_rate": 0.1,
+      "use_quantizer": true,
+      "threshold": 0.0,
+      "threshold_type": "adaptive"
+    },
+    "model_type": "DualCalciumVQVAE"
+  },
+  "results": {
+    "train": {
+      "num_embeddings_total": 256,
+      "num_embeddings_per_codebook": 128,
+      "active": {
+        "num_embeddings": 128,
+        "used_codes": 94,
+        "usage_percentage": 73.4375,
+        "unused_codes": [
+          0,
+          25,
+          56,
+          57,
+          62,
+          64,
+          78,
+          79,
+          83,
+          85,
+          87,
+          88,
+          91,
+          92,
+          96,
+          98,
+          100,
+          102,
+          104,
+          106,
+          109,
+          110,
+          111,
+          113,
+          114,
+          115,
+          118,
+          119,
+          120,
+          121,
+          122,
+          123,
+          125,
+          126
+        ],
+        "total_encodings": 173241,
+        "code_usage": {
+          "93": 145,
+          "94": 7751,
+          "11": 70,
+          "10": 3625,
+          "24": 10822,
+          "12": 817,
+          "105": 1524,
+          "90": 12031,
+          "124": 14526,
+          "60": 9406,
+          "89": 7064,
+          "59": 7163,
+          "81": 2124,
+          "32": 2820,
+          "50": 7230,
+          "26": 9909,
+          "49": 3395,
+          "52": 8374,
+          "42": 2550,
+          "99": 3680,
+          "108": 3057,
+          "3": 305,
+          "37": 8358,
+          "103": 4607,
+          "13": 3562,
+          "17": 4572,
+          "43": 204,
+          "45": 2227,
+          "35": 3787,
+          "4": 3386,
+          "72": 2460,
+          "107": 298,
+          "23": 2056,
+          "33": 1247,
+          "71": 2617,
+          "20": 179,
+          "63": 2922,
+          "58": 1366,
+          "19": 2053,
+          "127": 550,
+          "48": 321,
+          "65": 59,
+          "46": 515,
+          "86": 126,
+          "101": 373,
+          "95": 140,
+          "41": 2063,
+          "14": 177,
+          "38": 1190,
+          "54": 272,
+          "1": 50,
+          "74": 485,
+          "8": 116,
+          "16": 167,
+          "75": 335,
+          "76": 101,
+          "68": 13,
+          "15": 124,
+          "84": 111,
+          "31": 242,
+          "28": 302,
+          "82": 14,
+          "34": 15,
+          "53": 18,
+          "5": 22,
+          "6": 230,
+          "30": 21,
+          "69": 334,
+          "67": 87,
+          "112": 154,
+          "36": 9,
+          "39": 12,
+          "40": 2,
+          "66": 5,
+          "21": 13,
+          "22": 24,
+          "44": 7,
+          "117": 36,
+          "47": 6,
+          "18": 3,
+          "2": 3,
+          "70": 10,
+          "61": 23,
+          "77": 38,
+          "116": 2,
+          "9": 2,
+          "27": 12,
+          "55": 1,
+          "97": 1,
+          "80": 1,
+          "29": 3,
+          "51": 2,
+          "7": 8,
+          "73": 2
+        },
+        "top_10_codes": [
+          {
+            "code_index": 124,
+            "count": 14526
+          },
+          {
+            "code_index": 90,
+            "count": 12031
+          },
+          {
+            "code_index": 24,
+            "count": 10822
+          },
+          {
+            "code_index": 26,
+            "count": 9909
+          },
+          {
+            "code_index": 60,
+            "count": 9406
+          },
+          {
+            "code_index": 52,
+            "count": 8374
+          },
+          {
+            "code_index": 37,
+            "count": 8358
+          },
+          {
+            "code_index": 94,
+            "count": 7751
+          },
+          {
+            "code_index": 50,
+            "count": 7230
+          },
+          {
+            "code_index": 59,
+            "count": 7163
+          }
+        ],
+        "code_frequencies": {
+          "0": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "1": {
+            "count": 50,
+            "percentage": 0.028861528160193023
+          },
+          "2": {
+            "count": 3,
+            "percentage": 0.0017316916896115816
+          },
+          "3": {
+            "count": 305,
+            "percentage": 0.17605532177717745
+          },
+          "4": {
+            "count": 3386,
+            "percentage": 1.9545026870082718
+          },
+          "5": {
+            "count": 22,
+            "percentage": 0.012699072390484931
+          },
+          "6": {
+            "count": 230,
+            "percentage": 0.1327630295368879
+          },
+          "7": {
+            "count": 8,
+            "percentage": 0.004617844505630884
+          },
+          "8": {
+            "count": 116,
+            "percentage": 0.06695874533164782
+          },
+          "9": {
+            "count": 2,
+            "percentage": 0.001154461126407721
+          },
+          "10": {
+            "count": 3625,
+            "percentage": 2.0924607916139943
+          },
+          "11": {
+            "count": 70,
+            "percentage": 0.04040613942427024
+          },
+          "12": {
+            "count": 817,
+            "percentage": 0.47159737013755404
+          },
+          "13": {
+            "count": 3562,
+            "percentage": 2.056095266132151
+          },
+          "14": {
+            "count": 177,
+            "percentage": 0.10216980968708331
+          },
+          "15": {
+            "count": 124,
+            "percentage": 0.0715765898372787
+          },
+          "16": {
+            "count": 167,
+            "percentage": 0.0963975040550447
+          },
+          "17": {
+            "count": 4572,
+            "percentage": 2.6390981349680502
+          },
+          "18": {
+            "count": 3,
+            "percentage": 0.0017316916896115816
+          },
+          "19": {
+            "count": 2053,
+            "percentage": 1.1850543462575256
+          },
+          "20": {
+            "count": 179,
+            "percentage": 0.10332427081349102
+          },
+          "21": {
+            "count": 13,
+            "percentage": 0.007503997321650187
+          },
+          "22": {
+            "count": 24,
+            "percentage": 0.013853533516892653
+          },
+          "23": {
+            "count": 2056,
+            "percentage": 1.186786037947137
+          },
+          "24": {
+            "count": 10822,
+            "percentage": 6.246789154992179
+          },
+          "25": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "26": {
+            "count": 9909,
+            "percentage": 5.719777650787053
+          },
+          "27": {
+            "count": 12,
+            "percentage": 0.006926766758446327
+          },
+          "28": {
+            "count": 302,
+            "percentage": 0.17432363008756588
+          },
+          "29": {
+            "count": 3,
+            "percentage": 0.0017316916896115816
+          },
+          "30": {
+            "count": 21,
+            "percentage": 0.012121841827281071
+          },
+          "31": {
+            "count": 242,
+            "percentage": 0.13968979629533426
+          },
+          "32": {
+            "count": 2820,
+            "percentage": 1.6277901882348864
+          },
+          "33": {
+            "count": 1247,
+            "percentage": 0.7198065123152141
+          },
+          "34": {
+            "count": 15,
+            "percentage": 0.008658458448057908
+          },
+          "35": {
+            "count": 3787,
+            "percentage": 2.18597214285302
+          },
+          "36": {
+            "count": 9,
+            "percentage": 0.005195075068834745
+          },
+          "37": {
+            "count": 8358,
+            "percentage": 4.824493047257866
+          },
+          "38": {
+            "count": 1190,
+            "percentage": 0.686904370212594
+          },
+          "39": {
+            "count": 12,
+            "percentage": 0.006926766758446327
+          },
+          "40": {
+            "count": 2,
+            "percentage": 0.001154461126407721
+          },
+          "41": {
+            "count": 2063,
+            "percentage": 1.1908266518895643
+          },
+          "42": {
+            "count": 2550,
+            "percentage": 1.4719379361698444
+          },
+          "43": {
+            "count": 204,
+            "percentage": 0.11775503489358755
+          },
+          "44": {
+            "count": 7,
+            "percentage": 0.004040613942427024
+          },
+          "45": {
+            "count": 2227,
+            "percentage": 1.2854924642549974
+          },
+          "46": {
+            "count": 515,
+            "percentage": 0.29727374004998813
+          },
+          "47": {
+            "count": 6,
+            "percentage": 0.0034633833792231633
+          },
+          "48": {
+            "count": 321,
+            "percentage": 0.18529101078843924
+          },
+          "49": {
+            "count": 3395,
+            "percentage": 1.9596977620771066
+          },
+          "50": {
+            "count": 7230,
+            "percentage": 4.173376971963911
+          },
+          "51": {
+            "count": 2,
+            "percentage": 0.001154461126407721
+          },
+          "52": {
+            "count": 8374,
+            "percentage": 4.833728736269128
+          },
+          "53": {
+            "count": 18,
+            "percentage": 0.01039015013766949
+          },
+          "54": {
+            "count": 272,
+            "percentage": 0.15700671319145007
+          },
+          "55": {
+            "count": 1,
+            "percentage": 0.0005772305632038605
+          },
+          "56": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "57": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "58": {
+            "count": 1366,
+            "percentage": 0.7884969493364735
+          },
+          "59": {
+            "count": 7163,
+            "percentage": 4.134702524229253
+          },
+          "60": {
+            "count": 9406,
+            "percentage": 5.429430677495512
+          },
+          "61": {
+            "count": 23,
+            "percentage": 0.013276302953688793
+          },
+          "62": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "63": {
+            "count": 2922,
+            "percentage": 1.6866677056816806
+          },
+          "64": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "65": {
+            "count": 59,
+            "percentage": 0.034056603229027774
+          },
+          "66": {
+            "count": 5,
+            "percentage": 0.002886152816019303
+          },
+          "67": {
+            "count": 87,
+            "percentage": 0.05021905899873587
+          },
+          "68": {
+            "count": 13,
+            "percentage": 0.007503997321650187
+          },
+          "69": {
+            "count": 334,
+            "percentage": 0.1927950081100894
+          },
+          "70": {
+            "count": 10,
+            "percentage": 0.005772305632038606
+          },
+          "71": {
+            "count": 2617,
+            "percentage": 1.5106123839045031
+          },
+          "72": {
+            "count": 2460,
+            "percentage": 1.4199871854814967
+          },
+          "73": {
+            "count": 2,
+            "percentage": 0.001154461126407721
+          },
+          "74": {
+            "count": 485,
+            "percentage": 0.2799568231538724
+          },
+          "75": {
+            "count": 335,
+            "percentage": 0.19337223867329328
+          },
+          "76": {
+            "count": 101,
+            "percentage": 0.058300286883589916
+          },
+          "77": {
+            "count": 38,
+            "percentage": 0.0219347614017467
+          },
+          "78": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "79": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "80": {
+            "count": 1,
+            "percentage": 0.0005772305632038605
+          },
+          "81": {
+            "count": 2124,
+            "percentage": 1.2260377162449998
+          },
+          "82": {
+            "count": 14,
+            "percentage": 0.008081227884854048
+          },
+          "83": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "84": {
+            "count": 111,
+            "percentage": 0.06407259251562852
+          },
+          "85": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "86": {
+            "count": 126,
+            "percentage": 0.07273105096368643
+          },
+          "87": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "88": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "89": {
+            "count": 7064,
+            "percentage": 4.077556698472071
+          },
+          "90": {
+            "count": 12031,
+            "percentage": 6.944660905905646
+          },
+          "91": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "92": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "93": {
+            "count": 145,
+            "percentage": 0.08369843166455979
+          },
+          "94": {
+            "count": 7751,
+            "percentage": 4.474114095393123
+          },
+          "95": {
+            "count": 140,
+            "percentage": 0.08081227884854048
+          },
+          "96": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "97": {
+            "count": 1,
+            "percentage": 0.0005772305632038605
+          },
+          "98": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "99": {
+            "count": 3680,
+            "percentage": 2.1242084725902064
+          },
+          "100": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "101": {
+            "count": 373,
+            "percentage": 0.21530700007503997
+          },
+          "102": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "103": {
+            "count": 4607,
+            "percentage": 2.6593012046801854
+          },
+          "104": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "105": {
+            "count": 1524,
+            "percentage": 0.8796993783226834
+          },
+          "106": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "107": {
+            "count": 298,
+            "percentage": 0.17201470783475042
+          },
+          "108": {
+            "count": 3057,
+            "percentage": 1.7645938317142018
+          },
+          "109": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "110": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "111": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "112": {
+            "count": 154,
+            "percentage": 0.08889350673339451
+          },
+          "113": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "114": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "115": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "116": {
+            "count": 2,
+            "percentage": 0.001154461126407721
+          },
+          "117": {
+            "count": 36,
+            "percentage": 0.02078030027533898
+          },
+          "118": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "119": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "120": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "121": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "122": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "123": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "124": {
+            "count": 14526,
+            "percentage": 8.384851161099279
+          },
+          "125": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "126": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "127": {
+            "count": 550,
+            "percentage": 0.3174768097621233
+          }
+        }
+      },
+      "inactive": {
+        "num_embeddings": 128,
+        "used_codes": 32,
+        "usage_percentage": 25.0,
+        "unused_codes": [
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          61,
+          62,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          75,
+          76,
+          77,
+          78,
+          79,
+          80,
+          82,
+          83,
+          86,
+          87,
+          88,
+          89,
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99,
+          100,
+          101,
+          102,
+          103,
+          104,
+          105,
+          106,
+          107,
+          108,
+          109,
+          110,
+          111,
+          112,
+          113,
+          114,
+          115,
+          116,
+          117,
+          118,
+          119,
+          121,
+          123,
+          124,
+          125,
+          127
+        ],
+        "total_encodings": 173964,
+        "code_usage": {
+          "74": 6596,
+          "122": 3600,
+          "11": 7342,
+          "10": 13266,
+          "85": 4816,
+          "16": 1073,
+          "126": 9021,
+          "81": 1718,
+          "13": 4368,
+          "4": 9006,
+          "21": 9288,
+          "19": 6389,
+          "17": 6638,
+          "14": 8494,
+          "1": 4668,
+          "84": 5512,
+          "0": 5876,
+          "23": 5819,
+          "20": 11789,
+          "6": 7469,
+          "120": 5432,
+          "7": 5016,
+          "8": 5064,
+          "2": 5029,
+          "12": 3203,
+          "9": 633,
+          "63": 1487,
+          "3": 3206,
+          "15": 5784,
+          "18": 4627,
+          "5": 1722,
+          "22": 13
+        },
+        "top_10_codes": [
+          {
+            "code_index": 10,
+            "count": 13266
+          },
+          {
+            "code_index": 20,
+            "count": 11789
+          },
+          {
+            "code_index": 21,
+            "count": 9288
+          },
+          {
+            "code_index": 126,
+            "count": 9021
+          },
+          {
+            "code_index": 4,
+            "count": 9006
+          },
+          {
+            "code_index": 14,
+            "count": 8494
+          },
+          {
+            "code_index": 6,
+            "count": 7469
+          },
+          {
+            "code_index": 11,
+            "count": 7342
+          },
+          {
+            "code_index": 17,
+            "count": 6638
+          },
+          {
+            "code_index": 74,
+            "count": 6596
+          }
+        ],
+        "code_frequencies": {
+          "0": {
+            "count": 5876,
+            "percentage": 3.3777103308730543
+          },
+          "1": {
+            "count": 4668,
+            "percentage": 2.6833137890598056
+          },
+          "2": {
+            "count": 5029,
+            "percentage": 2.890827987399692
+          },
+          "3": {
+            "count": 3206,
+            "percentage": 1.842910027361983
+          },
+          "4": {
+            "count": 9006,
+            "percentage": 5.176933158584535
+          },
+          "5": {
+            "count": 1722,
+            "percentage": 0.9898599710284886
+          },
+          "6": {
+            "count": 7469,
+            "percentage": 4.293417028810558
+          },
+          "7": {
+            "count": 5016,
+            "percentage": 2.8833551769331587
+          },
+          "8": {
+            "count": 5064,
+            "percentage": 2.910947092501897
+          },
+          "9": {
+            "count": 633,
+            "percentage": 0.3638683865627371
+          },
+          "10": {
+            "count": 13266,
+            "percentage": 7.6257156653100635
+          },
+          "11": {
+            "count": 7342,
+            "percentage": 4.220413418868271
+          },
+          "12": {
+            "count": 3203,
+            "percentage": 1.8411855326389368
+          },
+          "13": {
+            "count": 4368,
+            "percentage": 2.5108643167551907
+          },
+          "14": {
+            "count": 8494,
+            "percentage": 4.882619392517992
+          },
+          "15": {
+            "count": 5784,
+            "percentage": 3.3248258260329724
+          },
+          "16": {
+            "count": 1073,
+            "percentage": 0.6167942792761721
+          },
+          "17": {
+            "count": 6638,
+            "percentage": 3.8157319905267757
+          },
+          "18": {
+            "count": 4627,
+            "percentage": 2.6597456945115083
+          },
+          "19": {
+            "count": 6389,
+            "percentage": 3.6725989285139455
+          },
+          "20": {
+            "count": 11789,
+            "percentage": 6.7766894299970115
+          },
+          "21": {
+            "count": 9288,
+            "percentage": 5.339035662550873
+          },
+          "22": {
+            "count": 13,
+            "percentage": 0.007472810466533306
+          },
+          "23": {
+            "count": 5819,
+            "percentage": 3.3449449311351778
+          },
+          "24": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "25": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "26": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "27": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "28": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "29": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "30": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "31": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "32": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "33": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "34": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "35": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "36": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "37": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "38": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "39": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "40": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "41": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "42": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "43": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "44": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "45": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "46": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "47": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "48": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "49": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "50": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "51": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "52": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "53": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "54": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "55": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "56": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "57": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "58": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "59": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "60": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "61": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "62": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "63": {
+            "count": 1487,
+            "percentage": 0.8547745510565405
+          },
+          "64": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "65": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "66": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "67": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "68": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "69": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "70": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "71": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "72": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "73": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "74": {
+            "count": 6596,
+            "percentage": 3.7915890644041292
+          },
+          "75": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "76": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "77": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "78": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "79": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "80": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "81": {
+            "count": 1718,
+            "percentage": 0.9875606447310938
+          },
+          "82": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "83": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "84": {
+            "count": 5512,
+            "percentage": 3.168471637810122
+          },
+          "85": {
+            "count": 4816,
+            "percentage": 2.7683888620634156
+          },
+          "86": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "87": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "88": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "89": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "90": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "91": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "92": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "93": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "94": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "95": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "96": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "97": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "98": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "99": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "100": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "101": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "102": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "103": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "104": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "105": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "106": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "107": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "108": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "109": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "110": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "111": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "112": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "113": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "114": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "115": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "116": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "117": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "118": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "119": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "120": {
+            "count": 5432,
+            "percentage": 3.1224851118622245
+          },
+          "121": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "122": {
+            "count": 3600,
+            "percentage": 2.069393667655377
+          },
+          "123": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "124": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "125": {
+            "count": 0,
+            "percentage": 0.0
+          },
+          "126": {
+            "count": 9021,
+            "percentage": 5.185555632199765
+          },
+          "127": {
+            "count": 0,
+            "percentage": 0.0
+          }
+        }
+      },
+      "combined": {
+        "used_codes": 126,
+        "usage_percentage": 49.21875,
+        "total_encodings": 347205,
+        "samples_processed": 23147
+      }
+    }
+  }
+}

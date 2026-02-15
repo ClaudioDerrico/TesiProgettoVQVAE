@@ -28,7 +28,7 @@ from models.vqvae import CalciumVQVAE
 # CONFIGURAZIONE
 # ============================================================================
 
-CHECKPOINT_PATH = "results/best_single_neuron_model.pth"
+CHECKPOINT_PATH = "results/best_single_neuron_model_32.pth"
 
 # W&B Configuration
 WANDB_PROJECT = "calcium-vqvae-context-probing-single-neuron"

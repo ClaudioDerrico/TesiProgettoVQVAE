@@ -1,0 +1,341 @@
+{
+  "metadata": {
+    "timestamp": "20251114_130640",
+    "base_code": 16,
+    "num_pairs": 32,
+    "model_config": {
+      "num_neurons": 1,
+      "num_hiddens": 128,
+      "num_residual_layers": 3,
+      "num_residual_hiddens": 64,
+      "num_embeddings": 32,
+      "embedding_dim": 32,
+      "commitment_cost": 2.0,
+      "dropout_rate": 0.1,
+      "use_quantizer": true
+    },
+    "checkpoint": "results/best_single_neuron_model_32.pth"
+  },
+  "pairs": [
+    {
+      "code_pair": [
+        16,
+        0
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.656029224395752,
+      "amplitude_difference_abs": 0.1484837532043457,
+      "amplitude_difference_rel": 2.6960060000419617
+    },
+    {
+      "code_pair": [
+        16,
+        1
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.233651638031006,
+      "amplitude_difference_abs": 0.2738938331604004,
+      "amplitude_difference_rel": 4.973065480589867
+    },
+    {
+      "code_pair": [
+        16,
+        2
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.6167097091674805,
+      "amplitude_difference_abs": 0.10916423797607422,
+      "amplitude_difference_rel": 1.982085034251213
+    },
+    {
+      "code_pair": [
+        16,
+        3
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.587413311004639,
+      "amplitude_difference_abs": 0.07986783981323242,
+      "amplitude_difference_rel": 1.4501530677080154
+    },
+    {
+      "code_pair": [
+        16,
+        4
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.544219017028809,
+      "amplitude_difference_abs": 0.036673545837402344,
+      "amplitude_difference_rel": 0.6658782251179218
+    },
+    {
+      "code_pair": [
+        16,
+        5
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.786431312561035,
+      "amplitude_difference_abs": 0.2788858413696289,
+      "amplitude_difference_rel": 5.063704773783684
+    },
+    {
+      "code_pair": [
+        16,
+        6
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.929275989532471,
+      "amplitude_difference_abs": 0.42173051834106445,
+      "amplitude_difference_rel": 7.657322287559509
+    },
+    {
+      "code_pair": [
+        16,
+        7
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 6.603693962097168,
+      "amplitude_difference_abs": 1.0961484909057617,
+      "amplitude_difference_rel": 19.90266740322113
+    },
+    {
+      "code_pair": [
+        16,
+        8
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 6.005073547363281,
+      "amplitude_difference_abs": 0.497528076171875,
+      "amplitude_difference_rel": 9.033571928739548
+    },
+    {
+      "code_pair": [
+        16,
+        9
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.870767116546631,
+      "amplitude_difference_abs": 0.3632216453552246,
+      "amplitude_difference_rel": 6.594981998205185
+    },
+    {
+      "code_pair": [
+        16,
+        10
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.30755090713501,
+      "amplitude_difference_abs": 0.19999456405639648,
+      "amplitude_difference_rel": 3.6312829703092575
+    },
+    {
+      "code_pair": [
+        16,
+        11
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.439715385437012,
+      "amplitude_difference_abs": 0.06783008575439453,
+      "amplitude_difference_rel": 1.2315846979618073
+    },
+    {
+      "code_pair": [
+        16,
+        12
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.623719692230225,
+      "amplitude_difference_abs": 0.11617422103881836,
+      "amplitude_difference_rel": 2.109364792704582
+    },
+    {
+      "code_pair": [
+        16,
+        13
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.687582015991211,
+      "amplitude_difference_abs": 0.1800365447998047,
+      "amplitude_difference_rel": 3.268907219171524
+    },
+    {
+      "code_pair": [
+        16,
+        14
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 6.4269256591796875,
+      "amplitude_difference_abs": 0.9193801879882812,
+      "amplitude_difference_rel": 16.693101823329926
+    },
+    {
+      "code_pair": [
+        16,
+        15
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 6.053874492645264,
+      "amplitude_difference_abs": 0.5463290214538574,
+      "amplitude_difference_rel": 9.919646382331848
+    },
+    {
+      "code_pair": [
+        16,
+        16
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.507545471191406,
+      "amplitude_difference_abs": 0.0,
+      "amplitude_difference_rel": 0.0
+    },
+    {
+      "code_pair": [
+        16,
+        17
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.875268459320068,
+      "amplitude_difference_abs": 0.3677229881286621,
+      "amplitude_difference_rel": 6.67671263217926
+    },
+    {
+      "code_pair": [
+        16,
+        18
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.2961649894714355,
+      "amplitude_difference_abs": 0.2113804817199707,
+      "amplitude_difference_rel": 3.838016092777252
+    },
+    {
+      "code_pair": [
+        16,
+        19
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 3.3005332946777344,
+      "amplitude_difference_abs": 2.207012176513672,
+      "amplitude_difference_rel": 40.07251858711243
+    },
+    {
+      "code_pair": [
+        16,
+        20
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.309782028198242,
+      "amplitude_difference_abs": 0.19776344299316406,
+      "amplitude_difference_rel": 3.5907726734876633
+    },
+    {
+      "code_pair": [
+        16,
+        21
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 3.580082416534424,
+      "amplitude_difference_abs": 1.9274630546569824,
+      "amplitude_difference_rel": 34.996771812438965
+    },
+    {
+      "code_pair": [
+        16,
+        22
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 6.199108600616455,
+      "amplitude_difference_abs": 0.6915631294250488,
+      "amplitude_difference_rel": 12.556648254394531
+    },
+    {
+      "code_pair": [
+        16,
+        23
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.5376973152160645,
+      "amplitude_difference_abs": 0.030151844024658203,
+      "amplitude_difference_rel": 0.5474642850458622
+    },
+    {
+      "code_pair": [
+        16,
+        24
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.456841945648193,
+      "amplitude_difference_abs": 0.05070352554321289,
+      "amplitude_difference_rel": 0.9206192567944527
+    },
+    {
+      "code_pair": [
+        16,
+        25
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.418498992919922,
+      "amplitude_difference_abs": 0.08904647827148438,
+      "amplitude_difference_rel": 1.6168087720870972
+    },
+    {
+      "code_pair": [
+        16,
+        26
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 6.203215599060059,
+      "amplitude_difference_abs": 0.6956701278686523,
+      "amplitude_difference_rel": 12.631219625473022
+    },
+    {
+      "code_pair": [
+        16,
+        27
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.802588939666748,
+      "amplitude_difference_abs": 0.2950434684753418,
+      "amplitude_difference_rel": 5.357077345252037
+    },
+    {
+      "code_pair": [
+        16,
+        28
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.3957953453063965,
+      "amplitude_difference_abs": 0.11175012588500977,
+      "amplitude_difference_rel": 2.0290369167923927
+    },
+    {
+      "code_pair": [
+        16,
+        29
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.732600212097168,
+      "amplitude_difference_abs": 0.22505474090576172,
+      "amplitude_difference_rel": 4.086298495531082
+    },
+    {
+      "code_pair": [
+        16,
+        30
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.664122581481934,
+      "amplitude_difference_abs": 0.15657711029052734,
+      "amplitude_difference_rel": 2.8429562225937843
+    },
+    {
+      "code_pair": [
+        16,
+        31
+      ],
+      "base_amplitude": 5.507545471191406,
+      "target_amplitude": 5.449943542480469,
+      "amplitude_difference_abs": 0.0576019287109375,
+      "amplitude_difference_rel": 1.0458729229867458
+    }
+  ]
+}

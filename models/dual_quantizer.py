@@ -100,41 +100,88 @@ class DualCodebookQuantizer(nn.Module):
         else:
             return self.threshold
     
-    def forward(self, inputs):
+    def forward(self, inputs, x_original=None):
         """
-        Forward pass con dual codebook
+        Forward pass con dual codebook VINCOLATO
         
         Args:
-            inputs: (B, C, T) per 1D o (B, C, H, W) per 2D
+            inputs: Embeddings da quantizzare (B, C, T) per 1D o (B, C, H, W) per 2D
+            x_original: Segnale originale neurale (B, C, T) - OBBLIGATORIO per vincolo
             
         Returns:
             loss, quantized, perplexity, encodings, encoding_indices
         """
         input_shape = inputs.shape
         
-        # Flatten
+        # Flatten embeddings
         if inputs.dim() == 3:  # 1D
             flat_input = inputs.permute(0, 2, 1).contiguous().view(-1, self.e_dim)
         else:  # 2D
             flat_input = inputs.permute(0, 2, 3, 1).contiguous().view(-1, self.e_dim)
         
         # ============================================
-        # STEP 1: DETERMINA ACTIVE/INACTIVE
+        # STEP 1: DETERMINA ACTIVE/INACTIVE DAL SEGNALE ORIGINALE
         # ============================================
         
-        # Calcola "attivazione" come norma o media del vettore
-        # Opzione 1: usa la norma L2
-        activation_level = torch.norm(flat_input, dim=1)
+        if x_original is not None:
+            # ✅ VINCOLO: Usa attività REALE dal segnale neurale originale
+            # Per calcium imaging, l'attività è meglio misurata come:
+            # 1. Deviazione dalla baseline (media) - segnali sopra baseline = attivi
+            # 2. Oppure varianza/picchi - segnali con alta varianza = attivi
+            if x_original.dim() == 3:  # (B, C, T)
+                # Calcola baseline come media del segnale
+                baseline = x_original.mean(dim=2, keepdim=True)  # (B, C, 1)
+                
+                # Calcola max deviation dalla baseline
+                # Segnali con alta deviazione = attivi (spike/eventi)
+                # Segnali con bassa deviazione = inattivi (baseline)
+                max_deviation = (x_original - baseline).abs().max(dim=2)[0].squeeze(1)  # (B,)
+                
+                # Usa max deviation come misura di attività
+                activity_level = max_deviation  # (B,)
+                
+                # Ripeti per ogni token temporale nell'embedding
+                T_emb = inputs.shape[2] if inputs.dim() == 3 else 1
+                activity_level_expanded = activity_level.unsqueeze(1).repeat(1, T_emb).view(-1)  # (B*T_emb,)
+            else:
+                # Fallback: usa norma L2 se x_original non disponibile
+                activity_level_expanded = torch.norm(flat_input, dim=1)
+        else:
+            # Fallback: usa norma L2 se x_original non fornito
+            activity_level_expanded = torch.norm(flat_input, dim=1)
         
-        # Opzione 2: usa la media (se embeddings rappresentano intensità)
-        # activation_level = flat_input.mean(dim=1)
-        
-        # Aggiorna threshold se adaptive
-        current_threshold = self._update_adaptive_threshold(inputs)
+        # ✅ SEMPRE calcola threshold come mediana (anche in eval mode) per bilanciamento 50/50
+        if self.threshold_type == 'adaptive':
+            sorted_levels, _ = torch.sort(activity_level_expanded)
+            n = len(sorted_levels)
+            if n > 0:
+                median_idx = n // 2
+                current_threshold = sorted_levels[median_idx].item()
+            else:
+                current_threshold = 0.0
+        else:
+            current_threshold = self.threshold
         
         # Maschera: True = active, False = inactive
-        active_mask = activation_level > current_threshold
+        active_mask = activity_level_expanded > current_threshold
         inactive_mask = ~active_mask
+        
+        # ✅ FORZA BILANCIAMENTO 50/50 SEMPRE (anche in eval mode)
+        if self.threshold_type == 'adaptive':
+            n_total = len(activity_level_expanded)
+            n_target = n_total // 2
+            n_active = active_mask.sum().item()
+            imbalance = abs(n_active - n_target) / n_total if n_total > 0 else 0.0
+            
+            if imbalance > 0.05:  # Se sbilanciamento > 5% (più aggressivo)
+                # Ricalcola threshold come mediana esatta
+                sorted_levels, _ = torch.sort(activity_level_expanded)
+                median_idx = n_total // 2
+                current_threshold = sorted_levels[median_idx].item()
+                
+                # Ricalcola maschere
+                active_mask = activity_level_expanded > current_threshold
+                inactive_mask = ~active_mask
         
         n_active = active_mask.sum().item()
         n_inactive = inactive_mask.sum().item()

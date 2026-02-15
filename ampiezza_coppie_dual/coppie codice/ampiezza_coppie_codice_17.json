@@ -1,0 +1,473 @@
+{
+  "metadata": {
+    "timestamp": "20260202_133124",
+    "base_code": 17,
+    "base_codebook_type": "inactive",
+    "num_pairs": 32,
+    "model_config": {
+      "num_neurons": 1,
+      "num_hiddens": 128,
+      "num_residual_layers": 3,
+      "num_residual_hiddens": 64,
+      "num_embeddings": 32,
+      "embedding_dim": 32,
+      "commitment_cost": 0.25,
+      "dropout_rate": 0.0,
+      "use_quantizer": true,
+      "threshold": 0.0,
+      "threshold_type": "adaptive"
+    },
+    "checkpoint": "results/dual_codebook/best_dual_model_32.pth",
+    "split_index": 16
+  },
+  "pairs": [
+    {
+      "code_pair": [
+        17,
+        0
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 5.064620494842529,
+      "amplitude_difference_abs": 4.521960735321045,
+      "amplitude_difference_rel": 833.2959175109863,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.074442744255066,
+      "euclidean_distance": 5.133619785308838
+    },
+    {
+      "code_pair": [
+        17,
+        1
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 4.634000301361084,
+      "amplitude_difference_abs": 4.0913405418396,
+      "amplitude_difference_rel": 753.9422988891602,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.0494494438171387,
+      "euclidean_distance": 4.69224214553833
+    },
+    {
+      "code_pair": [
+        17,
+        2
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 3.6679489612579346,
+      "amplitude_difference_abs": 3.1252894401550293,
+      "amplitude_difference_rel": 575.9207248687744,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.0784344673156738,
+      "euclidean_distance": 3.7497425079345703
+    },
+    {
+      "code_pair": [
+        17,
+        3
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 5.3214898109436035,
+      "amplitude_difference_abs": 4.778830051422119,
+      "amplitude_difference_rel": 880.631160736084,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 0.9850254058837891,
+      "euclidean_distance": 5.340996742248535
+    },
+    {
+      "code_pair": [
+        17,
+        4
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 6.476592540740967,
+      "amplitude_difference_abs": 5.933932781219482,
+      "amplitude_difference_rel": 1093.4906959533691,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.0496386289596558,
+      "euclidean_distance": 6.526074409484863
+    },
+    {
+      "code_pair": [
+        17,
+        5
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 3.2411842346191406,
+      "amplitude_difference_abs": 2.6985244750976562,
+      "amplitude_difference_rel": 497.2775459289551,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.1320030689239502,
+      "euclidean_distance": 3.356204032897949
+    },
+    {
+      "code_pair": [
+        17,
+        6
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 5.503416061401367,
+      "amplitude_difference_abs": 4.960756301879883,
+      "amplitude_difference_rel": 914.1561508178711,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 0.9967126250267029,
+      "euclidean_distance": 5.528329849243164
+    },
+    {
+      "code_pair": [
+        17,
+        7
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 4.462551116943359,
+      "amplitude_difference_abs": 3.919891357421875,
+      "amplitude_difference_rel": 722.3480701446533,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.0186989307403564,
+      "euclidean_distance": 4.505486488342285
+    },
+    {
+      "code_pair": [
+        17,
+        8
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 5.181646823883057,
+      "amplitude_difference_abs": 4.638987064361572,
+      "amplitude_difference_rel": 854.8612594604492,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.0197646617889404,
+      "euclidean_distance": 5.220641136169434
+    },
+    {
+      "code_pair": [
+        17,
+        9
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 6.079043865203857,
+      "amplitude_difference_abs": 5.536384105682373,
+      "amplitude_difference_rel": 1020.2314376831055,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.006683349609375,
+      "euclidean_distance": 6.106827735900879
+    },
+    {
+      "code_pair": [
+        17,
+        10
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 6.9785308837890625,
+      "amplitude_difference_abs": 6.435871124267578,
+      "amplitude_difference_rel": 1185.9867095947266,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.0169185400009155,
+      "euclidean_distance": 7.008745193481445
+    },
+    {
+      "code_pair": [
+        17,
+        11
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 3.837606906890869,
+      "amplitude_difference_abs": 3.2949471473693848,
+      "amplitude_difference_rel": 607.1848392486572,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.0380398035049438,
+      "euclidean_distance": 3.896170139312744
+    },
+    {
+      "code_pair": [
+        17,
+        12
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 4.774230003356934,
+      "amplitude_difference_abs": 4.231570243835449,
+      "amplitude_difference_rel": 779.7834873199463,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.02360999584198,
+      "euclidean_distance": 4.817685127258301
+    },
+    {
+      "code_pair": [
+        17,
+        13
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 7.0726118087768555,
+      "amplitude_difference_abs": 6.529952049255371,
+      "amplitude_difference_rel": 1203.3236503601074,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 0.9920895099639893,
+      "euclidean_distance": 7.089118003845215
+    },
+    {
+      "code_pair": [
+        17,
+        14
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 6.463470458984375,
+      "amplitude_difference_abs": 5.920810699462891,
+      "amplitude_difference_rel": 1091.072654724121,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 0.9811147451400757,
+      "euclidean_distance": 6.4759907722473145
+    },
+    {
+      "code_pair": [
+        17,
+        15
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 5.69752836227417,
+      "amplitude_difference_abs": 5.1548686027526855,
+      "amplitude_difference_rel": 949.9266624450684,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "active",
+      "cosine_distance": 1.0345820188522339,
+      "euclidean_distance": 5.741963863372803
+    },
+    {
+      "code_pair": [
+        17,
+        16
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.5880991220474243,
+      "amplitude_difference_abs": 0.04543948173522949,
+      "amplitude_difference_rel": 8.373477309942245,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 0.9395933151245117,
+      "euclidean_distance": 0.7757473587989807
+    },
+    {
+      "code_pair": [
+        17,
+        17
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.5426596403121948,
+      "amplitude_difference_abs": 0.0,
+      "amplitude_difference_rel": 0.0,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.1920928955078125e-07,
+      "euclidean_distance": 0.0
+    },
+    {
+      "code_pair": [
+        17,
+        18
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.5418339967727661,
+      "amplitude_difference_abs": 0.0008256435394287109,
+      "amplitude_difference_rel": 0.15214758459478617,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.314509630203247,
+      "euclidean_distance": 0.8792126774787903
+    },
+    {
+      "code_pair": [
+        17,
+        19
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.5781751275062561,
+      "amplitude_difference_abs": 0.03551548719406128,
+      "amplitude_difference_rel": 6.544707715511322,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.0062108039855957,
+      "euclidean_distance": 0.7954013347625732
+    },
+    {
+      "code_pair": [
+        17,
+        20
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.6016638875007629,
+      "amplitude_difference_abs": 0.059004247188568115,
+      "amplitude_difference_rel": 10.873159021139145,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 0.9673342704772949,
+      "euclidean_distance": 0.7969618439674377
+    },
+    {
+      "code_pair": [
+        17,
+        21
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.4906623363494873,
+      "amplitude_difference_abs": 0.05199730396270752,
+      "amplitude_difference_rel": 9.58193689584732,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.2027844190597534,
+      "euclidean_distance": 0.8020080327987671
+    },
+    {
+      "code_pair": [
+        17,
+        22
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.5906535387039185,
+      "amplitude_difference_abs": 0.04799389839172363,
+      "amplitude_difference_rel": 8.844199031591415,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.0816941261291504,
+      "euclidean_distance": 0.8340988159179688
+    },
+    {
+      "code_pair": [
+        17,
+        23
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.6541028022766113,
+      "amplitude_difference_abs": 0.1114431619644165,
+      "amplitude_difference_rel": 20.536474883556366,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.1831427812576294,
+      "euclidean_distance": 0.9232252836227417
+    },
+    {
+      "code_pair": [
+        17,
+        24
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.5976031422615051,
+      "amplitude_difference_abs": 0.0549435019493103,
+      "amplitude_difference_rel": 10.124854743480682,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 0.9036810994148254,
+      "euclidean_distance": 0.76755291223526
+    },
+    {
+      "code_pair": [
+        17,
+        25
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.6214808821678162,
+      "amplitude_difference_abs": 0.07882124185562134,
+      "amplitude_difference_rel": 14.52498733997345,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 0.7262185215950012,
+      "euclidean_distance": 0.7043088674545288
+    },
+    {
+      "code_pair": [
+        17,
+        26
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.5738837718963623,
+      "amplitude_difference_abs": 0.03122413158416748,
+      "amplitude_difference_rel": 5.753907188773155,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.3674499988555908,
+      "euclidean_distance": 0.9234106540679932
+    },
+    {
+      "code_pair": [
+        17,
+        27
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.5961988568305969,
+      "amplitude_difference_abs": 0.0535392165184021,
+      "amplitude_difference_rel": 9.866076707839966,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.5163121223449707,
+      "euclidean_distance": 0.9919781684875488
+    },
+    {
+      "code_pair": [
+        17,
+        28
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.6107931733131409,
+      "amplitude_difference_abs": 0.06813353300094604,
+      "amplitude_difference_rel": 12.555481493473053,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.0698035955429077,
+      "euclidean_distance": 0.8448792695999146
+    },
+    {
+      "code_pair": [
+        17,
+        29
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.6032268404960632,
+      "amplitude_difference_abs": 0.06056720018386841,
+      "amplitude_difference_rel": 11.161176860332489,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.1724958419799805,
+      "euclidean_distance": 0.8782334327697754
+    },
+    {
+      "code_pair": [
+        17,
+        30
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.5328128337860107,
+      "amplitude_difference_abs": 0.009846806526184082,
+      "amplitude_difference_rel": 1.8145455047488213,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 0.9557463526725769,
+      "euclidean_distance": 0.7434906363487244
+    },
+    {
+      "code_pair": [
+        17,
+        31
+      ],
+      "base_amplitude": 0.5426596403121948,
+      "target_amplitude": 0.6772547960281372,
+      "amplitude_difference_abs": 0.13459515571594238,
+      "amplitude_difference_rel": 24.80286806821823,
+      "base_codebook_type": "inactive",
+      "target_codebook_type": "inactive",
+      "cosine_distance": 1.0944304466247559,
+      "euclidean_distance": 0.9069528579711914
+    }
+  ]
+}

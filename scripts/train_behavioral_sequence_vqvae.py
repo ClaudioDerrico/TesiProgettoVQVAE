@@ -156,7 +156,7 @@ class BehavioralSequenceVQVAE(nn.Module):
     """
     
     def __init__(self, pretrained_model, freeze_encoder=True, freeze_codebook=True,
-                 hidden_dim=256, dropout_rate=0.3):
+                 hidden_dim=256, dropout_rate=0.3, pretrained_num_neurons=None):
         super(BehavioralSequenceVQVAE, self).__init__()
         
         # ✅ FROZEN: Encoder + Pre-quantization
@@ -187,8 +187,12 @@ class BehavioralSequenceVQVAE(nn.Module):
         self.hidden_dim = hidden_dim
         self.dropout_rate = dropout_rate
         
+        # Store pretrained num_neurons to detect single-neuron models
+        self.pretrained_num_neurons = pretrained_num_neurons
+        
         print(f"\n📊 BehavioralSequenceVQVAE initialized:")
         print(f"   Embedding dim: {self.embedding_dim}")
+        print(f"   Pretrained num_neurons: {self.pretrained_num_neurons}")
         print(f"   Decoder: will be built at first forward")
     
     def _build_decoder(self, num_neurons, device):
@@ -370,47 +374,171 @@ def precompute_features(model, dataloader, device):
     Precompute quantized features from frozen encoder+quantizer
     This is done ONCE at the beginning to massively speed up training!
     
+    MEMORY-EFFICIENT: Includes proper cleanup to avoid out-of-memory errors.
+    
+    Supports both:
+    - Multi-neuron models: process all neurons at once
+    - Single-neuron models: process each neuron separately and aggregate
+    
     Returns:
         cached_features: list of (quantized_aggregated, velocity_seq) tuples
     """
+    import gc
+    
     print("\n🔥 PRECOMPUTING FEATURES (this will make training MUCH faster!)")
     print("="*70)
     
     model.eval()
     cached_features = []
     
+    # Check if model is single-neuron using pretrained_num_neurons
+    # If the model was trained with num_neurons=1, we need to process each neuron separately
+    is_single_neuron = model.pretrained_num_neurons == 1 if hasattr(model, 'pretrained_num_neurons') and model.pretrained_num_neurons is not None else False
+    
+    if is_single_neuron:
+        print("⚠️  Detected SINGLE-NEURON model - processing each neuron separately")
+    else:
+        print("✅ Detected MULTI-NEURON model - processing all neurons together")
+    
     with torch.no_grad():
-        for neural_data, velocity_seq in tqdm(dataloader, desc="Caching features"):
-            batch_size = neural_data.shape[0]
-            neural_data = neural_data.to(device)
-            
-            batch_quantized = []
-            
-            for i in range(batch_size):
-                sample_neural = neural_data[i].unsqueeze(1)  # (num_neurons, 1, 60)
+        for batch_idx, (neural_data, velocity_seq) in enumerate(tqdm(dataloader, desc="Caching features")):
+            try:
+                batch_size = neural_data.shape[0]
+                neural_data = neural_data.to(device)
                 
-                # Forward through frozen encoder+quantizer
-                z = model.encoder(sample_neural)
-                z = model.pre_quantization_conv(z)
-                z = F.layer_norm(z, [z.size(1), z.size(2)])
-                z = torch.clamp(z, min=-10.0, max=10.0)
+                batch_quantized = []
                 
-                _, quantized, _, _, _ = model.vector_quantization(z)
+                for i in range(batch_size):
+                    sample_neural = neural_data[i]  # (num_neurons, 60)
+                    num_neurons_data = sample_neural.shape[0]
+                    
+                    if is_single_neuron:
+                        # Process each neuron separately
+                        neuron_quantized = []
+                        
+                        # Process in smaller chunks to avoid GPU memory issues
+                        chunk_size = 10  # Process 10 neurons at a time
+                        
+                        for chunk_start in range(0, num_neurons_data, chunk_size):
+                            chunk_end = min(chunk_start + chunk_size, num_neurons_data)
+                            chunk_quantized = []
+                            
+                            for neuron_idx in range(chunk_start, chunk_end):
+                                single_neuron = sample_neural[neuron_idx:neuron_idx+1].unsqueeze(1)  # (1, 1, 60)
+                                
+                                # Forward through frozen encoder+quantizer
+                                z = model.encoder(single_neuron)  # (1, hidden_dim, compressed_time)
+                                z = model.pre_quantization_conv(z)  # (1, embedding_dim, compressed_time)
+                                z = F.layer_norm(z, [z.size(1), z.size(2)])
+                                z = torch.clamp(z, min=-10.0, max=10.0)
+                                
+                                # Check if dual codebook (needs x_original)
+                                if hasattr(model.vector_quantization, 'embedding_active'):
+                                    # Dual codebook - pass x_original
+                                    # Use eval mode and ensure no gradients
+                                    model.vector_quantization.eval()
+                                    with torch.no_grad():
+                                        _, quantized, _, _, _ = model.vector_quantization(z, x_original=single_neuron)
+                                else:
+                                    # Single codebook
+                                    _, quantized, _, _, _ = model.vector_quantization(z)
+                                
+                                # quantized: (1, embedding_dim, compressed_time)
+                                chunk_quantized.append(quantized)
+                                
+                                # Cleanup
+                                del z, single_neuron, quantized
+                            
+                            # Stack chunk and move to CPU to free GPU memory
+                            if chunk_quantized:
+                                chunk_stacked = torch.cat(chunk_quantized, dim=0).cpu()
+                                neuron_quantized.append(chunk_stacked)
+                                del chunk_quantized, chunk_stacked
+                            
+                            # Periodic GPU cleanup with synchronization
+                            if torch.cuda.is_available():
+                                torch.cuda.synchronize()  # Wait for all operations to complete
+                                torch.cuda.empty_cache()
+                        
+                        # Stack all neurons: (num_neurons, embedding_dim, compressed_time)
+                        quantized = torch.cat(neuron_quantized, dim=0).to(device)
+                        del neuron_quantized
+                    else:
+                        # Multi-neuron model - process all at once
+                        sample_neural = sample_neural.unsqueeze(1)  # (num_neurons, 1, 60)
+                        
+                        # Forward through frozen encoder+quantizer
+                        z = model.encoder(sample_neural)  # (num_neurons, hidden_dim, compressed_time)
+                        z = model.pre_quantization_conv(z)  # (num_neurons, embedding_dim, compressed_time)
+                        z = F.layer_norm(z, [z.size(1), z.size(2)])
+                        z = torch.clamp(z, min=-10.0, max=10.0)
+                        
+                        # Check if dual codebook (needs x_original)
+                        if hasattr(model.vector_quantization, 'embedding_active'):
+                            # Dual codebook - pass x_original
+                            _, quantized, _, _, _ = model.vector_quantization(z, x_original=sample_neural)
+                        else:
+                            # Single codebook
+                            _, quantized, _, _, _ = model.vector_quantization(z)
+                        
+                        del z
+                    
+                    # Aggregate: (num_neurons, embedding_dim, compressed_time) -> (1, num_neurons*embedding_dim, compressed_time)
+                    num_neurons_actual, embedding_dim, compressed_time = quantized.shape
+                    quantized_aggregated = quantized.reshape(1, num_neurons_actual * embedding_dim, compressed_time)
+                    
+                    batch_quantized.append(quantized_aggregated)
+                    
+                    # Cleanup
+                    del quantized, quantized_aggregated
                 
-                # Aggregate
-                num_neurons_actual, embedding_dim, compressed_time = quantized.shape
-                quantized_aggregated = quantized.reshape(1, num_neurons_actual * embedding_dim, compressed_time)
+                # Stack batch
+                batch_quantized = torch.cat(batch_quantized, dim=0)  # (batch, num_neurons*embedding_dim, 15)
                 
-                batch_quantized.append(quantized_aggregated)
-            
-            # Stack batch
-            batch_quantized = torch.cat(batch_quantized, dim=0)  # (batch, num_neurons*embedding_dim, 15)
-            
-            # Store on CPU to save GPU memory
-            cached_features.append((batch_quantized.cpu(), velocity_seq.cpu()))
+                # Move to CPU immediately and clone to avoid keeping GPU references
+                batch_quantized_cpu = batch_quantized.cpu().clone()
+                velocity_seq_cpu = velocity_seq.cpu().clone()
+                
+                # Store on CPU to save GPU memory
+                cached_features.append((batch_quantized_cpu, velocity_seq_cpu))
+                
+                # Cleanup GPU tensors
+                del neural_data, velocity_seq, batch_quantized, batch_quantized_cpu, velocity_seq_cpu
+                
+                # Periodic cleanup every 5 batches (more frequent for single-neuron)
+                cleanup_freq = 5 if is_single_neuron else 10
+                if (batch_idx + 1) % cleanup_freq == 0:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()  # Ensure all operations complete
+                    gc.collect()
+                    
+            except RuntimeError as e:
+                error_str = str(e).lower()
+                if "out of memory" in error_str or "not enough memory" in error_str or "cublas" in error_str or "cuda" in error_str:
+                    print(f"\n⚠️  GPU error at batch {batch_idx + 1}: {str(e)[:100]}")
+                    print(f"   Cached {len(cached_features)} batches so far")
+                    print(f"   Attempting aggressive cleanup...")
+                    
+                    # Aggressive cleanup
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()
+                        torch.cuda.empty_cache()
+                    gc.collect()
+                    
+                    # Try to continue
+                    continue
+                else:
+                    raise
+    
+    # Final cleanup
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
     
     print(f"✅ Cached {len(cached_features)} batches of features")
-    print(f"   Each batch: {cached_features[0][0].shape}")
+    if len(cached_features) > 0:
+        print(f"   Each batch: {cached_features[0][0].shape}")
     print("="*70)
     
     return cached_features
@@ -541,6 +669,9 @@ def evaluate(model, dataloader, device):
     """Evaluation - OPTIMIZED"""
     model.eval()
     
+    # Check if model is single-neuron using pretrained_num_neurons
+    is_single_neuron = model.pretrained_num_neurons == 1 if hasattr(model, 'pretrained_num_neurons') and model.pretrained_num_neurons is not None else False
+    
     all_predictions = []
     all_targets = []
     
@@ -555,15 +686,47 @@ def evaluate(model, dataloader, device):
             batch_quantized = []
             
             for i in range(batch_size):
-                sample_neural = neural_data[i].unsqueeze(1)
+                sample_neural = neural_data[i]  # (num_neurons, 60)
+                num_neurons_data = sample_neural.shape[0]
                 
-                # Frozen parts
-                z = model.encoder(sample_neural)
-                z = model.pre_quantization_conv(z)
-                z = F.layer_norm(z, [z.size(1), z.size(2)])
-                z = torch.clamp(z, min=-10.0, max=10.0)
-                
-                _, quantized, _, _, _ = model.vector_quantization(z)
+                if is_single_neuron:
+                    # Process each neuron separately
+                    neuron_quantized = []
+                    
+                    for neuron_idx in range(num_neurons_data):
+                        single_neuron = sample_neural[neuron_idx:neuron_idx+1].unsqueeze(1)  # (1, 1, 60)
+                        
+                        # Frozen parts
+                        z = model.encoder(single_neuron)
+                        z = model.pre_quantization_conv(z)
+                        z = F.layer_norm(z, [z.size(1), z.size(2)])
+                        z = torch.clamp(z, min=-10.0, max=10.0)
+                        
+                        # Check if dual codebook
+                        if hasattr(model.vector_quantization, 'embedding_active'):
+                            _, quantized, _, _, _ = model.vector_quantization(z, x_original=single_neuron)
+                        else:
+                            _, quantized, _, _, _ = model.vector_quantization(z)
+                        
+                        neuron_quantized.append(quantized)
+                    
+                    # Stack all neurons
+                    quantized = torch.cat(neuron_quantized, dim=0)  # (num_neurons, embedding_dim, compressed_time)
+                else:
+                    # Multi-neuron model
+                    sample_neural = sample_neural.unsqueeze(1)  # (num_neurons, 1, 60)
+                    
+                    # Frozen parts
+                    z = model.encoder(sample_neural)
+                    z = model.pre_quantization_conv(z)
+                    z = F.layer_norm(z, [z.size(1), z.size(2)])
+                    z = torch.clamp(z, min=-10.0, max=10.0)
+                    
+                    # Check if dual codebook
+                    if hasattr(model.vector_quantization, 'embedding_active'):
+                        _, quantized, _, _, _ = model.vector_quantization(z, x_original=sample_neural)
+                    else:
+                        _, quantized, _, _, _ = model.vector_quantization(z)
                 
                 # Aggregate
                 num_neurons_actual, embedding_dim, compressed_time = quantized.shape
@@ -680,12 +843,16 @@ def main():
     
     config = {
         # Pretrained model
-        'pretrained_checkpoint': './results/best_single_neuron_model_2048.pth',
+        'pretrained_checkpoint': './results/dual_codebook_constrained/best_dual_model_1024_constrained.pth',
         # Or use dual codebook:
         # 'pretrained_checkpoint': './results/dual_codebook/best_dual_model.pth',
         
         # Data
-        'session_id': TRAINING_SESSION_IDS[0],
+        # ✅ SINGLE SESSION: usa solo la prima sessione
+        # 'session_ids': [TRAINING_SESSION_IDS[0]],
+        # ✅ MULTI SESSION: usa più sessioni (esempio)
+        'session_ids': [TRAINING_SESSION_IDS[0]],  # Cambia per usare più sessioni
+        # Esempio multi-sessione: 'session_ids': TRAINING_SESSION_IDS[:3],  # Prime 3 sessioni
         'window_size': 60,
         'stride': 30,
         'test_split': 0.2,
@@ -748,7 +915,7 @@ def main():
     print("="*70)
     
     train_loader, test_loader, dataset_info = create_sequence_dataloaders(
-        session_ids=[config['session_id']],
+        session_ids=config['session_ids'],  # ✅ Ora supporta più sessioni!
         batch_size=config['batch_size'],
         test_split=config['test_split'],
         window_size=config['window_size'],
@@ -758,6 +925,7 @@ def main():
     )
     
     print(f"\n✅ Data loaded:")
+    print(f"   Sessions: {len(config['session_ids'])} session(s) - {config['session_ids']}")
     print(f"   Train: {dataset_info['train_samples']}")
     print(f"   Test: {dataset_info['test_samples']}")
     print(f"   Neural shape: {dataset_info['neural_shape']}")
@@ -780,7 +948,8 @@ def main():
         freeze_encoder=config['freeze_encoder'],
         freeze_codebook=config['freeze_codebook'],
         hidden_dim=config['hidden_dim'],
-        dropout_rate=config['dropout_rate']
+        dropout_rate=config['dropout_rate'],
+        pretrained_num_neurons=pretrained_config.get('num_neurons', None)
     ).to(device)
     
     # ✅ BUILD DECODER IMMEDIATELY with known num_neurons
@@ -814,9 +983,11 @@ def main():
     # WANDB
     # ========================================================================
     
+    # Create wandb name with session info
+    session_info = f"{len(config['session_ids'])}sess" if len(config['session_ids']) > 1 else f"sess{config['session_ids'][0]}"
     wandb.init(
         project="calcium-behavioral-vqvae-sequence",
-        name=f"behavioral_seq_{Path(config['pretrained_checkpoint']).stem}",
+        name=f"behavioral_seq_{Path(config['pretrained_checkpoint']).stem}_{session_info}",
         config=config,
         tags=['behavioral', 'sequence', 'pretrained', 'frozen_encoder']
     )
@@ -905,7 +1076,7 @@ def main():
                     'test_metrics': test_metrics
                 }
                 
-                torch.save(checkpoint, save_dir / 'best_behavioral_model.pth')
+                torch.save(checkpoint, save_dir / 'best_behavioral_model_1024_pt2.pth')
                 print(f"\n💾 Saved best model (corr={best_correlation:.4f})")
             else:
                 patience_counter += 1
